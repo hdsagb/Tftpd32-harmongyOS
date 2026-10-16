@@ -16,6 +16,10 @@
 #undef min
 #define min(a,b)  (((a) < (b)) ? (a) : (b))
 
+// HarmonyOS PAL：poll + 唤醒管道（等价替换原 WSAEventSelect/WaitForMultipleObjects）
+#include <poll.h>
+#include <unistd.h>
+
 
 // #define DEB_TEST
 
@@ -512,15 +516,7 @@ return TRUE;
 } // TftpdCleanup
 
 
-// a watch dog which reset the socket event if data are available
-static int ResetSockEvent (SOCKET s, HANDLE hEv)
-{
-long dwData;
-int Rc;
-   Rc = ioctlsocket ( s ,  FIONREAD, & dwData);
-   if (dwData==0) ResetEvent (hEv);
-return Rc;   
-}
+// HarmonyOS PAL：原 ResetSockEvent 仅服务 WSAEventSelect 机制，已随事件机制移除
 
 
 // ---------------------------------------------------------------
@@ -530,11 +526,8 @@ void TftpdMain (void *param)
 {
 int Rc;
 int parse;
-HANDLE hSocketEvent = INVALID_HANDLE_VALUE;
 struct LL_TftpInfo *pTftp;
-// events : either socket event or wake up by another thread
-enum { E_TFTP_SOCK=0, E_TFTP_WAKE, E_TFTP_EV_NB };
-HANDLE tObjects [E_TFTP_EV_NB];
+int nWakeFd = -1;      /* 唤醒管道读端（替代 hSocketEvent + hEv 双事件等待） */
 int dwRefreshInterval = sSettings.dwRefreshInterval;
 
     // creates socket and starts permanent threads
@@ -543,7 +536,11 @@ int dwRefreshInterval = sSettings.dwRefreshInterval;
 
 	 tThreads [TH_TFTP].bInit = TRUE;  // inits OK
 
-	// Socket was not opened at the start since we have to use interface 
+	/* HarmonyOS PAL：唤醒管道由 service_main 创建（PalCreatePipeEvent） */
+	if (tThreads[TH_TFTP].hEv != INVALID_HANDLE_VALUE)
+		nWakeFd = PalWakeFd (tThreads[TH_TFTP].hEv);
+
+	// Socket was not opened at the start since we have to use interface
     // once an address as been assigned
 	while ( tThreads[TH_TFTP].gRunning  )
 	{
@@ -557,74 +554,62 @@ int dwRefreshInterval = sSettings.dwRefreshInterval;
 		   break;
 	   }
 
-	    // create event for the incoming Socket
-		hSocketEvent = WSACreateEvent();
-		Rc = WSAEventSelect (tThreads[TH_TFTP].skt, hSocketEvent, FD_READ);
-		Rc = GetLastError ();
-
-		tObjects[E_TFTP_SOCK] = hSocketEvent;
-		tObjects[E_TFTP_WAKE] = tThreads[TH_TFTP].hEv;
-
-		// stop only when TFTP is stopped and all threads have returned
-
-		// waits for either incoming connection or thread event
-		Rc = WaitForMultipleObjects ( E_TFTP_EV_NB,
-										tObjects,
-										FALSE,
-										dwRefreshInterval);
-#ifdef RT                                      
-if (Rc!=WAIT_TIMEOUT) LogToMonitor ( "exit wait, object %d\n", Rc);
+		/* HarmonyOS PAL：poll(监听socket) + poll(唤醒管道)，等价于原
+		   WSACreateEvent/WSAEventSelect + WaitForMultipleObjects 双事件等待 */
+		{ struct pollfd tPfd [2];
+		  int nCount = 0;
+		  tPfd [nCount].fd = tThreads[TH_TFTP].skt;  tPfd [nCount].events = POLLIN;  tPfd [nCount].revents = 0;  nCount ++;
+		  if (nWakeFd >= 0)
+		  { tPfd [nCount].fd = nWakeFd;  tPfd [nCount].events = POLLIN;  tPfd [nCount].revents = 0;  nCount ++; }
+		  Rc = poll (tPfd, nCount, dwRefreshInterval);
+		}
+#ifdef RT
+if (Rc!=0) LogToMonitor ( "exit wait, rc %d\n", Rc);
 #endif
 		if (! tThreads[TH_TFTP].gRunning ) break;
 
-		switch (Rc)
+		if (Rc == 0)      /* 等价原 WAIT_TIMEOUT 分支：上报统计 */
 		{
-			case E_TFTP_WAKE :   // a thread has exited
-									// update table
-				do
-				{
+			SendStatsToGui(gSendFullStat); // full stat flag may be set by console
+			gSendFullStat = FALSE;         // reset full stat flag
+			if (dwRefreshInterval * 2 < sSettings.dwRefreshInterval)
+				  dwRefreshInterval *= 2;
+			else  dwRefreshInterval = sSettings.dwRefreshInterval;
+		}
+		else if (Rc > 0)
+		{
+			/* 唤醒管道可读：worker 线程已退出（回收）或服务被要求停止 */
+			struct pollfd pChk = { nWakeFd, POLLIN, 0 };
+			if (nWakeFd >= 0 && poll (& pChk, 1, 0) == 1 && (pChk.revents & POLLIN))
+			{ char szDummy [16];
+			  while (read (nWakeFd, szDummy, sizeof szDummy) > 0) ;
+			  if (! tThreads[TH_TFTP].gRunning ) break;
+			  do
+			  {
 					parse=FALSE;
-					for ( pTftp=pTftpFirst ; pTftp!=NULL ; pTftp=pTftp->next ) 
+					for ( pTftp=pTftpFirst ; pTftp!=NULL ; pTftp=pTftp->next )
 					{
 						if  (! pTftp->tm.bPermanentThread && ! pTftp->tm.bActive )
 						{
-if (pTftp==NULL) { LogToMonitor ("NULL POINTER pTftpFirst:%p\n", pTftpFirst); Sleep (5000); break; }
-							CloseHandle (pTftp->tm.dwThreadHandle);
+							PalFreeThreadHandle (pTftp->tm.dwThreadHandle);
 							pTftp = TftpdDestroyThreadItem (pTftp);
 							parse = TRUE;
 							break;
 						} // thread no more active
 					}
-				} // parse all threads (due to race conditions, we can have only one event)
-				while (parse);
-				break;
-
-			// we have received a message on the port 69
-			case E_TFTP_SOCK :    // Socket Msg
-				WSAEventSelect (tThreads[TH_TFTP].skt, 0, 0);
-				TftpdChooseNewThread (tThreads[TH_TFTP].skt);
-				ResetEvent( hSocketEvent );
-				WSAEventSelect (tThreads[TH_TFTP].skt, hSocketEvent, FD_READ);
-				// ResetSockEvent (sListenerSocket, hSocketEvent);
-				dwRefreshInterval = sSettings.dwRefreshInterval / 4 + 100; // update frequenlty
-				break;
-
-			case  WAIT_TIMEOUT :
-				SendStatsToGui(gSendFullStat); // full stat flag may be set by console
-				gSendFullStat = FALSE;         // reset full stat flag
-				// ResetSockEvent (sListenerSocket, hSocketEvent);
-				if (dwRefreshInterval * 2 < sSettings.dwRefreshInterval)
-					  dwRefreshInterval *= 2;
-				else  dwRefreshInterval = sSettings.dwRefreshInterval;
-				break;
-			case -1 :
-	LogToMonitor ( "WaitForMultipleObjects error %d\n", GetLastError() );
-				LOG (1, "WaitForMultipleObjects error %d", GetLastError());
-				break;
-		}   // switch
-
-
-		CloseHandle(hSocketEvent);
+			  } // parse all threads (due to race conditions, we can have only one event)
+			  while (parse);
+			  continue;
+			}
+			/* 监听 socket 可读：等价原 E_TFTP_SOCK 分支 */
+			TftpdChooseNewThread (tThreads[TH_TFTP].skt);
+			dwRefreshInterval = sSettings.dwRefreshInterval / 4 + 100; // update frequenlty
+		}
+		else   /* poll 失败，等价原 case -1 */
+		{
+	LogToMonitor ( "poll error %d\n", GetLastError() );
+			LOG (1, "poll error %d", GetLastError());
+		}
 
     } // endless loop
 
@@ -656,9 +641,8 @@ if (pTftp==NULL) { LogToMonitor ("NULL POINTER pTftpFirst:%p\n", pTftpFirst); Sl
 			}
 	} // Terminate sub threads
 
-	Rc = closesocket (tThreads[TH_TFTP].skt); 
+	Rc = closesocket (tThreads[TH_TFTP].skt);
 	tThreads[TH_TFTP].skt=INVALID_SOCKET;
-    WSACloseEvent (hSocketEvent);
 
 LogToMonitor ("main TFTP thread ends here\n");
 _endthread ();
