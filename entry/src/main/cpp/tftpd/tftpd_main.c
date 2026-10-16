@@ -24,7 +24,7 @@
 // #define DEB_TEST
 
 #include "headers.h"
-#include <process.h>
+/* #include <process.h>  // HarmonyOS PAL：_beginthread 已由 pthread 替代 */
 #include <stdio.h>
 
 #include "threading.h"

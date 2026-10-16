@@ -116,6 +116,8 @@ DWORD WaitForSingleObject (HANDLE h, DWORD ms)
        if (h->th_valid)  { pthread_join (h->th, NULL);  h->th_valid = 0; }
        return 0;
     }
+    if (h->tag == PAL_TAG_MUTEX)
+    { pthread_mutex_lock (& h->mx);  return WAIT_OBJECT_0; }
     pthread_mutex_lock (& h->mx);
     while (! h->state)
     {
@@ -144,12 +146,12 @@ HANDLE CreateThread (LPVOID sa, DWORD stack, DWORD (WINAPI *fn)(LPVOID), LPVOID 
 return h;
 }
 
-DWORD SuspendThread (HANDLE h) { return 0; }   /* 仅 TftpdCleanup 关停路径使用 */
+DWORD SuspendThread (HANDLE h) { return 0; }   /* 仅 TftpdCleanup 关停路径使用（该函数当前无调用点） */
 
 BOOL TerminateThread (HANDLE h, DWORD code)
 {
-    if (h->th_valid)  pthread_cancel (h->th);  /* musl 支持 */
-return TRUE;
+    /* 仅 TftpdCleanup 关停路径使用（当前无调用点）；鸿蒙 musl 无 pthread_cancel，置空操作 */
+    return TRUE;
 }
 
 void PalFreeThreadHandle (HANDLE h)
@@ -157,5 +159,16 @@ void PalFreeThreadHandle (HANDLE h)
     if (h != NULL && h != INVALID_HANDLE_VALUE && h->tag == PAL_TAG_THREAD)
     {  if (h->th_valid)  { pthread_detach (h->th);  h->th_valid = 0; }  free (h); }
 }
+
+HANDLE CreateMutex (LPVOID sa, BOOL initOwner, LPCSTR name)
+{
+    HANDLE h = PalMake (PAL_TAG_MUTEX);
+    pthread_mutex_init (& h->mx, NULL);
+    /* initOwner 语义未用：linked_list.c 恒传 0 */
+return h;
+}
+
+BOOL ReleaseMutex (HANDLE h)
+{ pthread_mutex_unlock (& h->mx);  return TRUE; }
 
 void Sleep (DWORD ms) { usleep (ms * 1000u); }

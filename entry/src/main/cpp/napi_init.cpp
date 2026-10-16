@@ -1,6 +1,10 @@
 #include <cstring>
 #include <cstdlib>
+#include <new>
 #include "napi/native_api.h"
+extern "C" {
+#include "pal_compat.h"     /* BOOL 等类型与 PAL 声明 */
+}
 
 #ifdef __cplusplus
 extern "C" {

@@ -34,6 +34,8 @@ struct S_Tftpd32Settings sSettings =
     0,                      // dwMCastPort
     1,                      // bPersLeases
     0,                      // bUnicastBOOTP
+    0,                      // bPing（DHCP Ping 检测，鸿蒙无 ICMP，恒关）
+    0,                      // bDoubleAnswer
     "",                     // szDHCPLocalIP
     FALSE,                  // bEventLog
     "tftpd32",              // szConsolePwd

@@ -25,6 +25,12 @@
 #include <stddef.h>
 #include <pthread.h>
 #include <time.h>
+#include <assert.h>
+
+/* Windows CRT/安全函数 → POSIX 等价 */
+#define strnlen_s(s,n)        strnlen((s),(n))
+#define _atoi64(s)            strtoll((s),NULL,10)
+#define GetCurrentThreadId()  (0)
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +41,8 @@ typedef int BOOL; typedef unsigned char BYTE; typedef unsigned short WORD;
 typedef unsigned int DWORD; typedef unsigned int UINT; typedef int INT;
 typedef long LONG; typedef void *LPVOID; typedef const char *LPCSTR; typedef char *LPSTR;
 typedef const void *LPCVOID;
+typedef void *HWND;          /* GUI 句柄：仅结构体占位（tftp_struct.h），永不解引用 */
+typedef void *HINSTANCE;     /* GUI 句柄：仅声明占位（custom.h GuiMain），永不解引用 */
 typedef long long __int64;
 typedef int SOCKET;
 typedef unsigned long u_long;
@@ -72,9 +80,21 @@ typedef unsigned long u_long;
 #define lstrcat    strcat
 #define lstrlen(x) ((int)strlen(x))
 #define lstrcmpi(a,b) strcasecmp(a,b)
+#define MB_OK               0x00000000L
+#define MB_ICONSTOP         0x00000010L
+#define MB_ICONEXCLAMATION  0x00000030L
+#define MB_ICONASTERISK     0x00000040L
+#define MB_ICONINFORMATION  0x00000040L
 #define MessageBox(...) (0)
+#define MessageBeep(...) (0)
 #define OutputDebugString(x) ((void)0)
 #define _endthread() pthread_exit(NULL)
+/* 线程优先级：POSIX 侧不做优先级区分，全部为空操作 */
+#define THREAD_PRIORITY_ABOVE_NORMAL   1
+#define THREAD_PRIORITY_BELOW_NORMAL  -1
+#define THREAD_PRIORITY_TIME_CRITICAL  15
+#define GetCurrentThread() ((HANDLE)NULL)
+#define SetThreadPriority(...) (1)
 
 /* ---------- Socket ---------- */
 #define INVALID_SOCKET (-1)
@@ -115,13 +135,14 @@ typedef struct addrinfo ADDRINFO;
 #define INVALID_SET_FILE_POINTER ((DWORD)-1)
 
 typedef struct { DWORD dwLowDateTime; DWORD dwHighDateTime; } FILETIME;
-typedef union { struct { DWORD LowPart; LONG HighPart; } u; __int64 QuadPart; } LARGE_INTEGER, *PLARGE_INTEGER;
+/* 匿名结构体成员：原生代码按 li.LowPart / li.HighPart / li.QuadPart 访问 */
+typedef union { struct { DWORD LowPart; LONG HighPart; }; __int64 QuadPart; } LARGE_INTEGER, *PLARGE_INTEGER;
 typedef struct { DWORD dwFileAttributes; FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
                  DWORD nFileSizeHigh, nFileSizeLow; } WIN32_FILE_ATTRIBUTE_DATA;
 #define GetFileExInfoStandard 0
 
 /* ---------- 句柄体系（tag 区分 event/file/thread/pipe-event） ---------- */
-enum { PAL_TAG_EVENT = 1, PAL_TAG_FILE, PAL_TAG_THREAD, PAL_TAG_PIPEEV };
+enum { PAL_TAG_EVENT = 1, PAL_TAG_FILE, PAL_TAG_THREAD, PAL_TAG_PIPEEV, PAL_TAG_MUTEX };
 struct PAL_HANDLE__
 {
     int  tag;
@@ -157,6 +178,12 @@ void   Sleep (DWORD ms);
 HANDLE PalCreatePipeEvent (void);   /* SetEvent=写唤醒管道，供 tftpd_main poll 用 */
 int    PalWakeFd (HANDLE h);
 void   PalFreeThreadHandle (HANDLE h);  /* 已退出线程的 HANDLE 回收 */
+
+/* Mutex（linked_list.c 用） */
+#define WAIT_OBJECT_0 0
+#define WAIT_TIMEOUT  0x102
+HANDLE CreateMutex (LPVOID sa, BOOL initOwner, LPCSTR name);
+BOOL   ReleaseMutex (HANDLE h);
 
 /* ---------- 服务启停（service_main.c） ---------- */
 int  TftpdServiceStart (void);

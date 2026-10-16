@@ -26,7 +26,8 @@ char szDirFile [_MAX_PATH];
 
    if (Semaph++!=0)  return 0;
 
-   wsprintf (szDirFile, "%s\\%s", sSettings.szWorkingDirectory, DIR_TEXT_FILE);
+   /* HarmonyOS 适配：POSIX 路径分隔符为 '/' */
+   wsprintf (szDirFile, "%s/%s", sSettings.szWorkingDirectory, DIR_TEXT_FILE);
     hDirFile =  CreateFile (szDirFile,
                             GENERIC_WRITE,
                             FILE_SHARE_READ,

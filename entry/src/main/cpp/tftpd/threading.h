@@ -8,6 +8,11 @@
 //
 //////////////////////////////////////////////////////
 
+// HarmonyOS 适配：原文件无 include guard（原工程每个 .c 仅 include 一次），
+// 本工程 headers.h 与 .c 双重 include → 加 guard
+#ifndef THREADING_H_PAL
+#define THREADING_H_PAL
+
 #include "async_log.h"
 
 
@@ -88,3 +93,5 @@ void ConsoleTftpGetStatistics (void);
 // Actions called by Scheduler
 int PoolNetworkInterfaces (void);
 int GetIPv4Address (const char *szIf, char *szIP);
+
+#endif /* THREADING_H_PAL */

@@ -16,7 +16,7 @@
 // #define DEB_TEST
 
 #include "headers.h"
-#include <process.h>
+/* #include <process.h>  // HarmonyOS PAL：_beginthread 已由 pthread 替代 */
 #include <stdio.h>
 
 #include "threading.h"
@@ -84,7 +84,7 @@ WIN32_FILE_ATTRIBUTE_DATA fad;
             if (bForward  && op_code==TFTP_RRQ) return TRUE;
            SetLastError (ERROR_DIRECTORY);
             return FALSE;
-    } // type de s�curit�
+    } // type de s�curit�
 return FALSE;
 } // SecAllowSecurity
 
@@ -169,7 +169,7 @@ char *p;
     }
     if (szFile[1] == ':')   szFile[0] = toupper (szFile[0]);
     // Si option Virtual Root : Suppression de '\\'
-    // sera trait� � partir du r�pertoire courant
+    // sera trait� � partir du r�pertoire courant
   if (sSettings.bVirtualRoot  && szFile[0] == '\\')
       memmove (szFile, szFile+1, lstrlen (szFile));
 
@@ -531,7 +531,7 @@ LARGE_INTEGER large_filesize;
         if (IS_OPT (p, TFTP_OPT_TSIZE))
         {
             lstrcpy (pAck, p), pAck += lstrlen (p)+1;
-            // v�rue si read request -> on envoie la taille du fichier
+            // v�rue si read request -> on envoie la taille du fichier
             if (opcode==TFTP_RRQ)
             {
                 wsprintf (pAck, "%I64d", pTftp->st.qwTransferSize);
@@ -1056,7 +1056,8 @@ BOOL             bSuccess;
 		 struct sockaddr_in in ;
 		 memset (& in, 0, sizeof in);
 		 in.sin_family = AF_INET;
-		 in.sin_addr.s_addr =  ((DWORD *) (* (struct sockaddr_in6 *) & pTftp->b.from).sin6_addr.s6_bytes) [3];
+		 /* HarmonyOS 适配：Windows in6_addr 联合体成员 s6_bytes 在 musl 中为 s6_addr（同为 16 字节数组） */
+		 in.sin_addr.s_addr =  ((DWORD *) (* (struct sockaddr_in6 *) & pTftp->b.from).sin6_addr.s6_addr) [3];
 		 in.sin_port        = (* (struct sockaddr_in6 *) & pTftp->b.from).sin6_port;
 		 * (struct sockaddr_in *) & pTftp->b.from = in;
 	 }

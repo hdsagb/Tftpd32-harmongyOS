@@ -10,7 +10,7 @@
 //
 //////////////////////////////////////////////////////
 
-#include <windows.h>
+#include "headers.h"     /* HarmonyOS PAL：原文件直接 include <windows.h> */
 #include <assert.h>
 #include "linked_list.h"
 
