@@ -1570,50 +1570,58 @@ git add -A; git commit -m "feat(ui): Settings/TFTP/Log tabs, faithful compact la
 
 ---
 
-### Task 10: 真机端到端验证（与原生对拍）
+### Task 10: DevEco 模拟器端到端验证（与原生对拍）
 
-- [ ] **Step 10.1: 部署并启动**
+> 测试环境：DevEco 模拟器（x86_64，本机已装 Emulator 组件）。TFTP 为 UDP 协议，`hdc fport` 仅支持 TCP 转发，**必须 PC 与模拟器网络直连**，先做连通性检查（Step 10.3）。
 
-DevEco 连接真机（PC/2in1 优先）→ Run。UI 打开 → 设置页 Toggle 开启服务。预期日志：`[1] Connection received from ...` 仅在有客户端连接时出现；无 bind 错误。
+- [ ] **Step 10.1: 创建并启动模拟器**
 
-- [ ] **Step 10.2: 查询设备 IP**
+DevEco Studio → Tools → Device Manager → 新建/启动模拟器（本机 Emulator 组件位于 `C:\Users\32572\AppData\Local\Huawei\Emulator`）。等待开机完成。
+
+- [ ] **Step 10.2: 部署应用**
+
+连接模拟器后 IDE 直接 Run（模拟器为 x86_64，`abiFilters` 已含 `x86_64`；debug 签名由 IDE 自动生成）。UI 打开 → 设置页 Toggle 开启服务。预期：日志页出现 `TFTP 服务已启动（端口 6900）`，无 bind 报错。
+
+- [ ] **Step 10.3: 查询模拟器 IP 并验证 PC 连通性**
 
 ```powershell
-hdc shell ifconfig
+hdc list targets                      # 确认模拟器在线（emulator-xxxx 或 127.0.0.1:5555）
+hdc shell ifconfig                    # 记录 eth0 的 inet 地址
+ping <模拟器IP>                        # PC → 模拟器连通性
 ```
 
-记录 wlan0/eth0 的 inet 地址。
+Expected: ping 通。**若不通**（部分版本模拟器为 NAT 隔离）：在模拟器设置的"网络"中切换为桥接/本地网络模式后重启模拟器再试；仍不通则记录环境问题，回退到真机验证（矩阵不变，把"模拟器IP"换成设备IP）。
 
-- [ ] **Step 10.3: PC 端 curl 对拍（同一局域网）**
+- [ ] **Step 10.4: PC 端 curl 对拍**
 
 ```powershell
 "hello tftpd32 on harmony" | Set-Content test.bin
 # 上传（写）
-curl -T test.bin tftp://<设备IP>:6900/test.bin
+curl -T test.bin tftp://<模拟器IP>:6900/test.bin
 # 下载（读）并比对
-curl -o got.bin tftp://<设备IP>:6900/test.bin
+curl -o got.bin tftp://<模拟器IP>:6900/test.bin
 fc.exe test.bin got.bin
 ```
 
-Expected: `fc` 输出“无差异”；UI TFTP 页出现传输条目；日志页出现 `Connection received from <IP> on port ...`。
+Expected: `fc` 输出"无差异"；UI TFTP 页出现传输条目（`#1  /test.bin`）；日志页出现 `Connection received from <IP> on port ...`。
 
-- [ ] **Step 10.4: blksize 协商对拍**
+- [ ] **Step 10.5: blksize 协商对拍**
 
 ```powershell
-curl --tftp-blksize 16384 -o big.bin tftp://<设备IP>:6900/test.bin
-curl --tftp-blksize 8 -o tiny.bin tftp://<设备IP>:6900/test.bin
+curl --tftp-blksize 16384 -o big.bin tftp://<模拟器IP>:6900/test.bin
+curl --tftp-blksize 8 -o tiny.bin tftp://<模拟器IP>:6900/test.bin
 ```
 
 Expected: 均成功（OACK 协商生效，与原生 Tftpd32 行为一致）。
 
-- [ ] **Step 10.5: 安全级别对拍**
+- [ ] **Step 10.6: 安全级别对拍**
 
-设置页安全级别切“只读”→ 重启服务 → 重跑 Step 10.3 上传。Expected: 上传失败（EACCESS），下载成功 —— 与原生 Read-only 行为一致。
+设置页安全级别切"只读"→ 停止并重新开启服务 → 重跑 Step 10.4 上传。Expected: 上传失败（EACCESS），下载成功 —— 与原生 Read-only 行为一致。
 
-- [ ] **Step 10.6: Commit（如有修复）**
+- [ ] **Step 10.7: Commit（如有修复）**
 
 ```powershell
-git add -A; git commit -m "fix: milestone1 interop issues found during curl testing"
+git add -A; git commit -m "fix: milestone1 interop issues found during emulator curl testing"
 ```
 
 ---
@@ -1630,42 +1638,45 @@ git add -A; git commit -m "fix: milestone1 interop issues found during curl test
 "backgroundModes": ["taskKeeping"],
 ```
 
-- [ ] **Step 11.2: Index.ets toggleService 内接入 continuous task**
+- [ ] **Step 11.2: Index.ets toggleService 内接入 continuous task（已按 SDK 26 实际 API 实现）**
 
 ```typescript
-import { backgroundTaskManager } from '@kit.BackgroundTaskKit';
+import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import { wantAgent } from '@kit.AbilityKit';
+
+private async startContinuousTask(): Promise<void> {
+  const info: wantAgent.WantAgentInfo = {
+    wants: [{ bundleName: BUNDLE_NAME, abilityName: ABILITY_NAME }],
+    operationType: wantAgent.OperationType.START_ABILITY,
+    requestCode: 0,
+    wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+  };
+  const wantAgentObj = await wantAgent.getWantAgent(info);
+  await backgroundTaskManager.startBackgroundRunning(
+    getContext(this),
+    backgroundTaskManager.BackgroundMode.TASK_KEEPING,
+    wantAgentObj);
+}
 
 // toggleService 中：
 if (on) {
   try {
-    const wantAgentObj = await wantAgent.getWantAgent({
-      wantAgentInfo: {
-        bundleName: 'com.example.tftpd32',   // 以 AppScope/app.json5 实际 bundleName 为准
-        abilityName: 'EntryAbility'
-      } as wantAgent.WantAgentInfo
-    });
-    const req: backgroundTaskManager.ContinuousTaskRequest = {
-      wantAgent: wantAgentObj,
-      backgroundModes: [backgroundTaskManager.BackgroundMode.TASK_KEEPING]
-    } as backgroundTaskManager.ContinuousTaskRequest;
-    await backgroundTaskManager.startContinuousTask(req);
+    await this.startContinuousTask();
   } catch (e) {
-    // 手机端不支持 taskKeeping 时降级：仅前台可用，日志提示
-    this.logs.push('提示：此设备不支持后台常驻，退后台后服务可能中断');
-    this.logs = [...this.logs];
+    // 模拟器/手机不支持 taskKeeping 时降级：仅前台可用，日志提示
+    TftpdService.logs.push('提示：此设备不支持后台常驻，退后台后服务可能中断');
   }
-  this.running = await TftpdService.start();
+  this.running = TftpdService.start();
 } else {
   TftpdService.stop();
-  try { await backgroundTaskManager.stopContinuousTask(); } catch (_e) { /* 未申请过 */ }
   this.running = false;
+  try { await backgroundTaskManager.stopBackgroundRunning(getContext(this)); } catch (_e) { /* 未申请过 */ }
 }
 ```
 
 - [ ] **Step 11.3: 验证 + Commit**
 
-真机开启服务 → Home 退后台 5 分钟 → PC 侧 curl 仍可传输。Expected: 通过。
+模拟器验证降级路径：开启服务 → 无崩溃、日志出现"提示：此设备不支持后台常驻"或申请成功 → Home 退后台 → 回到应用服务状态保持。**真正的后台存活 8h 测试**（PC 侧 curl 仍可传输）依赖真实网络栈，留待里程碑 4 真机执行。
 
 ```powershell
 git add -A; git commit -m "feat(bg): continuous task keeps TFTP service alive"
@@ -1677,13 +1688,14 @@ git add -A; git commit -m "feat(bg): continuous task keeps TFTP service alive"
 
 | 项 | 验证方式 | 状态 |
 |---|---|---|
-| RRQ/WRQ 基本传输 | Task 10.3 curl 双向 | ☐ |
-| tsize/blksize/timeout 协商 | Task 10.4 | ☐ |
-| 4 档安全级别 | Task 10.5 + 手工切档 | ☐ |
+| RRQ/WRQ 基本传输 | Task 10.4 curl 双向（模拟器） | ☐ |
+| tsize/blksize/timeout 协商 | Task 10.5 | ☐ |
+| 4 档安全级别 | Task 10.6 + 手工切档 | ☐ |
 | >4GB/64 位长度 | curl 上传 ≥100MB 验证路径即可，4GB 用 dd 生成（可选） | ☐ |
 | 并发传输上限 | 5 个并行 curl | ☐ |
 | UI 三页签复刻 | 人工核对 | ☐ |
-| 后台存活 | Task 11.3 | ☐ |
+| 长时任务降级路径 | Task 11.3（模拟器） | ☐ |
+| 后台存活 8h | 里程碑 4 真机执行（模拟器无法代表真实网络栈） | ☐ |
 | 键名兼容 | tftpd32.ini 内容与原版 KEY_* 一致 | ☐ |
 
 ## 风险与红线

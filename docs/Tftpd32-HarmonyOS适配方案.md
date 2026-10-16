@@ -200,7 +200,7 @@ ArkTS ↔ native 之间仅三类消息，对应原版 `to_console.c` 的消息�
 2. 实现 PAL：pal_thread/pal_event/pal_cfg/pal_fs/pal_net/pal_log（以最小集通过编译）
 3. 移植 `tftpd_main.c`/`tftpd_thread.c`：RRQ/WRQ、OACK（tsize/blksize/timeout）、安全级别、>4GB、传输列表上报
 4. ArkUI：设置页（端口/根目录/安全/blksize 等核心项）+ TFTP 页 + 日志页；长时任务接入
-5. **验收**：与原生 Tftpd32/Windows tftp 客户端/curl `--tftp-blksize` 对拍，双向传输、大文件、异常重传一致
+5. **验收**：与原生 Tftpd32/Windows tftp 客户端/curl `--tftp-blksize` 对拍，双向传输、大文件、异常重传一致。**验收环境：DevEco 模拟器（x86_64）**——PC 与模拟器需网络直连（TFTP 为 UDP，`hdc fport` 仅 TCP 不可用）；真机对拍放里程碑 4
 
 ### 里程碑 2 —— 全服务补齐
 6. Syslog、SNTP、DNS（含 DHCP 租约表联动接口先留空）、TFTP 客户端
@@ -224,6 +224,7 @@ ArkTS ↔ native 之间仅三类消息，对应原版 `to_console.c` 的消息�
 
 ## 7. 测试与验收基线
 
+- **执行环境**：里程碑 1/2 在 **DevEco 模拟器**（x86_64）执行——模拟器与 PC 需网络直连（TFTP 为 UDP，`hdc fport` 仅支持 TCP，无法转发）；里程碑 3/4 增加真机（手机 + PC/2in1）
 - **协议一致性**：所有报文级测试用原生 Tftpd32 作为参照系（同请求同响应）
 - **客户端矩阵**：Windows `tftp`、curl TFTP、busybox tftp、PXE ROM（仅自定义端口场景）
 - **并发/压力**：≥50 并发传输、blksize 8/512/16384 边界、1MB–6GB 文件、超时重传
