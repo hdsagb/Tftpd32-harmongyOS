@@ -2,6 +2,7 @@
   "modelVersion": "26.0.0",
   "description": "Please describe the basic information.",
   "dependencies": {
+    "libtftpd32.so": "file:./entry/src/main/cpp/types/libtftpd32"
   },
   "devDependencies": {
     "@ohos/hypium": "1.0.25",

@@ -1,0 +1,6 @@
+{
+  "name": "libtftpd32.so",
+  "types": "./Index.d.ts",
+  "version": "",
+  "description": "Tftpd32 for HarmonyOS native bridge"
+}
