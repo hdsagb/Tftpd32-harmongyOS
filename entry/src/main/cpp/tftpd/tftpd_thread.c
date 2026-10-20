@@ -537,7 +537,8 @@ LARGE_INTEGER large_filesize;
             // v�rue si read request -> on envoie la taille du fichier
             if (opcode==TFTP_RRQ)
             {
-                wsprintf (pAck, "%I64d", pTftp->st.qwTransferSize);
+                // HarmonyOS/POSIX 适配：%I64d 是 MSVC 专有格式符，musl 不支持（会输出空串），改用 %lld
+                wsprintf (pAck, "%lld", (long long) pTftp->st.qwTransferSize);
                 pAck += lstrlen (pAck)+1;
                 pTftp->s.qwFileSize = pTftp->st.qwTransferSize;
             }
@@ -547,7 +548,8 @@ LARGE_INTEGER large_filesize;
                 pTftp->s.qwFileSize = pTftp->st.qwTransferSize = _atoi64(pValue); // Trust client
             }
 
-            LOG (10, "<%s> changed to <%u>", p, pTftp->st.qwTransferSize);
+            // HarmonyOS/POSIX 适配：qwTransferSize 为 64 位，%u 不匹配（且 MUSL 下输出错误）
+            LOG (10, "<%s> changed to <%lld>", p, (long long) pTftp->st.qwTransferSize);
             bOptionsAccepted = TRUE;
         }  // file size options
 
@@ -650,12 +652,13 @@ int nBlock;
     tp = (struct tftphdr *)pTftp->b.cnx_frame;
     // calcul du nb de block avec correction pour l'envoi
     nBlock = ntohs (tp->th_opcode)!=TFTP_RRQ ? pTftp->c.nCount : pTftp->c.nCount - 1;
-    LOG (2, "<%s>: %s %d blk%s, %I64d bytes in %d s. %d blk%s resent",
+    // HarmonyOS/POSIX 适配：%I64d → %lld（musl 不支持 MSVC 的 %I64 前缀）
+    LOG (2, "<%s>: %s %d blk%s, %lld bytes in %d s. %d blk%s resent",
                 tp->th_stuff,
                 ntohs (tp->th_opcode)==TFTP_RRQ ? "sent" : "rcvd",
                 nBlock,
                 PLURAL (nBlock),
-                pTftp->st.qwTotalBytes,
+                (long long) pTftp->st.qwTotalBytes,
                 (int) (time(NULL) - pTftp->st.StartTime),
                 pTftp->st.dwTotalTimeOut,
                 PLURAL (pTftp->st.dwTotalTimeOut));

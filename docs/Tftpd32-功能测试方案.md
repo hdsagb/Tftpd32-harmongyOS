@@ -210,9 +210,28 @@ Set-Content D:\trae\tfpd32\root\test_1k.txt ("Tftpd32 test`r`n" * 100)
 | OP-03 | P1 | blksize 65464 上限 | `curl --tftp-blksize 65464 -o o.bin tftp://<IP>:<port>/test_10m.bin` | 与原版行为一致（接受或按策略拒绝） |
 | OP-04 | P1 | tsize 预告 | `curl -v --tftp-blksize 1024 tftp://<IP>:<port>/test_10m.bin` | 响应中包含 tsize=10485760 |
 | OP-05 | P1 | timeout 协商 | `curl --tftp-blksize 512 -m 8 ...` 并人为制造丢包 | 重传节奏符合 Timeout=3s/MaxRetransmit=6 |
-| OP-06 | P2 | windowsize（WinSize>1） | 原版设 WinSize=4；用支持 RFC7440 的客户端（python tftp 脚本或 curl 新版） | 两端同样接受 windowsize=4 |
+| OP-06 | P2 | windowsize（WinSize>1） | 原版设 WinSize=4；客户端 RRQ 携带 `windowsize=4` | v4.74 源码无 RFC 7440 实现，预期两端均忽略该选项 |
 | OP-07 | P1 | 关闭 Negociate 后的请求 | 应用关掉"选项协商"，再执行 OP-01 | 客户端回退 512 块传输，仍成功 |
 | OP-08 | P2 | 未知选项请求 | python 构造 RRQ 携带非标准选项 | 与原版一致：OACK 只回显已知选项（或忽略） |
+
+#### 6.2.1 执行记录（2026-10-20，DevEco 模拟器 MateBook Pro ↔ 本机原版 v4.74）
+
+测试客户端为自建 `otftp2`（NDK clang 编译，octet，逐项可选），两侧同一客户端、同一请求。
+
+| 编号 | 应用版（6900） | 原版（6901） | 结论 |
+|---|---|---|---|
+| OP-01 | `blksize=16384`，641 块，10MB 成功 | `blksize=16384`，641 块，成功 | 一致，SHA256 三方相同 |
+| OP-02 | `blksize=8`，1902B / 238 块 | `blksize=8`，32B / 5 块 | 一致（截面值相同，文件不同） |
+| OP-03 | 65464 → 回落 `blksize=16384` | 65464 → 回落 `blksize=16384` | 一致 |
+| OP-04 | `tsize=1902` | `tsize=1902` | **修复后**一致（见下） |
+| OP-05 | `timeout=5`；`timeout=0` 被忽略 | `timeout=5`；`timeout=0` 被忽略 | 一致 |
+| OP-06 | 忽略 windowsize | 忽略 windowsize（WinSize=4 时同样忽略） | 一致；源码确认 v4.74 未实现 RFC 7440 |
+| OP-07 | Negociate=0 时不回 OACK，回落 512 | 同 | 一致，哈希相同 |
+| OP-08 | 仅未知选项→无 OACK；未知+blksize→只回 blksize | 同 | 一致 |
+
+本轮修复缺陷：`%I64d` / `%u`（MSVC 专有格式符，musl 下 tsize 输出空串）改为 `%lld`，
+涉及 tftpd_thread.c 三处（OACK 的 tsize、日志两处）。
+
 
 ### 6.3 安全级别与路径（M1）
 
