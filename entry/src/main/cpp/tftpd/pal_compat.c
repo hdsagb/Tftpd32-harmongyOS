@@ -101,6 +101,11 @@ HANDLE PalCreatePipeEvent (void)
 {
 int p[2];
     if (pipe (p) != 0)  return INVALID_HANDLE_VALUE;
+    /* HarmonyOS/POSIX 适配：必须非阻塞。主循环 poll 之后用
+       "while (read(...) > 0)" 清空管道，阻塞模式下最后一次 read 会永久挂起
+       TFTP 监听线程（并发传输创建/销毁临时线程时必现）。 */
+    fcntl (p[0], F_SETFL, fcntl (p[0], F_GETFL, 0) | O_NONBLOCK);
+    fcntl (p[1], F_SETFL, fcntl (p[1], F_GETFL, 0) | O_NONBLOCK);
     HANDLE h = PalMake (PAL_TAG_PIPEEV);
     h->fd = p[1];   /* 写端：SetEvent 用 */
     h->rfd = p[0];  /* 读端：tftpd_main poll 用 */
