@@ -274,6 +274,27 @@ Set-Content D:\trae\tfpd32\root\test_1k.txt ("Tftpd32 test`r`n" * 100)
 | RE-06 | P0 | 启停循环 | 连续 启动→停止→启动 10 次 | 每次端口均可重新绑定成功（无句柄泄漏） |
 | RE-07 | P1 | 传输中停止服务 | 大文件下载进行中点"停止" | 传输中止，应用不崩溃，重启后可正常服务 |
 
+#### 6.4.1 执行记录（2026-10-20，DevEco 模拟器 MateBook Pro ↔ 本机原版 v4.74）
+
+测试客户端为自建 `otftp2`（带 `abort=` / `delay=` / `junk` 扩展）与原始报文工具 `rtool`，两侧同一客户端、同一请求。
+
+| 编号 | 应用版（6900） | 原版（6901） | 结论 |
+|---|---|---|---|
+| RE-01 | 重传间隔 0 / 1002 / 3005 / 6008 / 9012 / 12016 ms，6 次后发 Error code=0 | 0 / 1013 / 3021 / 6035 / 9050 / 12057 ms，6 次后发 Error code=0 | 一致（Timeout=3s、MaxRetransmit=6），服务存活 |
+| RE-02 | 非法 TID 垃圾包静默丢弃，传输继续，哈希一致 | 同（未回 Error 5） | 一致 |
+| RE-03 | opcode=9 → Error 4 "Illegal TFTP operation" | 同 | 一致，服务存活 |
+| RE-04 | 34MB / blksize 512 / 69633 块（跨 16 位回绕），PUT→GET 哈希 `d1afa4a0…` | PUT 后宿主机文件哈希相同 | 一致 |
+| RE-05 | ≤516B 回 Error 4；≥520B 静默丢弃 | 同 | **修复后**一致（见下） |
+| RE-06 | 5 轮 + 10 轮混合负载启停：线程数 32→37 波动无单调增长，VmRSS 203→207MB 后稳定 | — | 无句柄/线程泄漏迹象，每次端口均可重绑 |
+| RE-07 | 停服瞬间 6900 端口消失；停服期间新 RRQ 超时无应答；**既有传输不中断继续**；重启后端口恢复，GET 1B 成功 | 原版 `bSoftReset` 语义相同（停监听、不打断 worker） | 一致，应用不崩溃 |
+
+本轮修复缺陷：Linux `recvfrom` 对超长报文静默截断并返回截断长度，而 WinSock 返回
+EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 Error 4、原版静默丢弃）。
+[tftpd_main.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/tftpd_main.c#L326-L334)
+改为 `MSG_TRUNC` 取真实长度，超过 `sizeof cnx_frame` 时按原版语义丢弃。
+
+已知差异（计入 M2）：应用 UI 尚无 WinSize 配置项，配置文件 `WinSize` 键可读但界面不可改。
+
 ### 6.5 TFTP 客户端（M2）
 
 | 编号 | 优先级 | 用例 | 步骤 | 预期 |

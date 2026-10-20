@@ -325,8 +325,12 @@ DWORD             nThread=0;
 
     // Read the connect datagram (since this use a "global socket" port 69 its done here)
     fromlen = sizeof pTftp->b.cnx_frame;
-    Rc = recvfrom (sListenerSocket, pTftp->b.cnx_frame, sizeof pTftp->b.cnx_frame, 0,
+    // HarmonyOS/POSIX 适配：Linux 会把超长报文静默截断到缓冲区长度并返回截断后的长度，
+    // 而原版 WinSock 对超出缓冲区的报文返回 EMSGSIZE（Rc<0）直接丢弃。
+    // 这里用 MSG_TRUNC 取得真实报文长度，超过 PKTSIZE 时按原版语义丢弃。
+    Rc = recvfrom (sListenerSocket, pTftp->b.cnx_frame, sizeof pTftp->b.cnx_frame, MSG_TRUNC,
                (struct sockaddr *)&pTftp->b.from, &fromlen);
+    if (Rc > (int) sizeof pTftp->b.cnx_frame)  Rc = -1;
     if (Rc < 0)
     {
         // the Tftp structure has been created --> suppress it
