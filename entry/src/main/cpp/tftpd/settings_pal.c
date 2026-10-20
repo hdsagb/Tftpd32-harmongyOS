@@ -95,27 +95,57 @@ BOOL Tftpd32ReadSettings (void)
 {
 FILE *f;
 char line [768];
-    if (s_szCfgPath [0] == 0)  return TRUE;
-    f = fopen (s_szCfgPath, "r");
-    if (f == NULL)  return TRUE;      // 无配置 → 用默认值
-    while (fgets (line, sizeof line, f) != NULL)
+    if (s_szCfgPath [0] != 0)
     {
-        char *pEq = strchr (line, '=');
-        int Ark;
-        if (pEq == NULL)  continue;
-        * pEq = 0;
-        line [strcspn (line, "\r\n")] = 0;
-        for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
-            if (strcmp (tKeys [Ark].name, line) == 0)
+        f = fopen (s_szCfgPath, "r");
+        if (f != NULL)      // 无配置 → 用默认值
+        {
+            while (fgets (line, sizeof line, f) != NULL)
             {
-                if (tKeys [Ark].type == PAL_T_INT)
-                    * (unsigned *) tKeys [Ark].p = (unsigned) strtoul (pEq + 1, NULL, 10);
-                else
-                    lstrcpyn_pal ((char *) tKeys [Ark].p, tKeys [Ark].size, pEq + 1);
-                break;
+                char *pEq = strchr (line, '=');
+                int Ark;
+                if (pEq == NULL)  continue;
+                * pEq = 0;
+                line [strcspn (line, "\r\n")] = 0;
+                for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
+                    if (strcmp (tKeys [Ark].name, line) == 0)
+                    {
+                        if (tKeys [Ark].type == PAL_T_INT)
+                            * (unsigned *) tKeys [Ark].p = (unsigned) strtoul (pEq + 1, NULL, 10);
+                        else
+                            lstrcpyn_pal ((char *) tKeys [Ark].p, tKeys [Ark].size, pEq + 1);
+                        break;
+                    }
             }
+            fclose (f);
+        }
     }
-    fclose (f);
+
+    /* —— WorkingDirectory 推导（与原版 settings.c Tftpd32ReadSettings 语义一致）——
+     * 环境变量 TFTP_DIR（有效目录）→ BaseDirectory（有效目录）→ 当前目录。
+     * TftpExtendFileName 用 szWorkingDirectory 拼全路径，缺失时文件操作落在 CWD("/") 上。 */
+    {
+    const char *pszEnv = getenv ("TFTP_DIR");
+    struct stat st;
+    char szFull [1024];      // realpath 可能写入至 PATH_MAX，先落大缓冲再截断拷贝，避免溢出
+        /* 首次运行（或目录被清空）时根目录可能不存在：原版由 GUI 设置对话框负责创建，
+         * 无 GUI 时在此补齐，否则 WorkingDirectory 会回落到 CWD("/") 导致文件操作 EACCES */
+        if (sSettings.szBaseDirectory[0] != 0 && stat (sSettings.szBaseDirectory, & st) != 0)
+        {
+            int RcMk = mkdir (sSettings.szBaseDirectory, 0755);
+            LogToMonitor ("PalSettings: mkdir <%s> returns %d (errno %d)",
+                          sSettings.szBaseDirectory, RcMk, errno);
+        }
+        if (pszEnv != NULL && stat (pszEnv, & st) == 0 && S_ISDIR (st.st_mode))
+            lstrcpyn_pal (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory,
+                          realpath (pszEnv, szFull) ? szFull : pszEnv);
+        else if (stat (sSettings.szBaseDirectory, & st) == 0 && S_ISDIR (st.st_mode))
+            lstrcpyn_pal (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory,
+                          realpath (sSettings.szBaseDirectory, szFull) ? szFull : sSettings.szBaseDirectory);
+        else
+            getcwd (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory);
+        LogToMonitor ("PalSettings: working directory <%s>", sSettings.szWorkingDirectory);
+    }
 return TRUE;
 }
 

@@ -160,17 +160,17 @@ char *p;
 		}
 	}
 
-// Translate '/' in '\'
+// Translate '\' in '/'
+    // HarmonyOS/POSIX 平台适配：统一为 '/'（原版 Windows 方向相反，bUnixStrings 本意即 Unix 风格路径）
     if (sSettings.bUnixStrings)
     {
         for (p=szFile ; *p!=0 ; p++ )
-            if (*p=='/')  *p='\\';
-
+            if (*p=='\\')  *p='/';
     }
     if (szFile[1] == ':')   szFile[0] = toupper (szFile[0]);
     // Si option Virtual Root : Suppression de '\\'
     // sera trait� � partir du r�pertoire courant
-  if (sSettings.bVirtualRoot  && szFile[0] == '\\')
+  if (sSettings.bVirtualRoot  && szFile[0] == '/')
       memmove (szFile, szFile+1, lstrlen (szFile));
 
 } // SecFileName
@@ -190,7 +190,8 @@ static char *TftpExtendFileName (struct LL_TftpInfo *pTftp,
 int  nLength;
     lstrcpy (szExtName, sSettings.szWorkingDirectory);
     nLength = lstrlen(szExtName);
-    if (nLength>0   &&   szExtName[nLength-1] != '\\')  szExtName [nLength++] = '\\';
+    // HarmonyOS/POSIX 平台适配：路径分隔符为 '/'（原版 Windows 用 '\'）
+    if (nLength>0   &&   szExtName[nLength-1] != '/')  szExtName [nLength++] = '/';
 	// virtual root has already been processed 
 	lstrcpy (szExtName + nLength, szShortName);
 return szExtName;
@@ -310,7 +311,9 @@ struct timeval sTimeout;
                       break;
            default : sTimeout.tv_sec = pTftp->s.dwTimeout ;
        }
-       Rc = select(1, &readfds, NULL, NULL, &sTimeout) ;
+       // HarmonyOS/POSIX 适配：WinSock 忽略 select() 的 nfds 参数，POSIX 必须传 maxfd+1。
+       // 原版写死 1，在 POSIX 上仅检查 fd 0，导致 fd>0 的传输 socket 永不判定可读（收不到 DATA/ACK）。
+       Rc = select(pTftp->r.skt + 1, &readfds, NULL, NULL, &sTimeout) ;
        if (Rc == SOCKET_ERROR) return TftpSysError (pTftp, EUNDEF, "select");
 return Rc; // TRUE if something is ready
 } // TftpSelect
