@@ -13,6 +13,6 @@ add_library(tftpd32 SHARED
     tftpd/tftpd_main.c tftpd/tftpd_thread.c tftpd/tftpd_util.c tftpd/tftp_dbg.c
     tftpd/pal_compat.c tftpd/settings_pal.c tftpd/console_pal.c tftpd/async_log_pal.c
     tftpd/service_main.c tftpd/ip_pal.c tftpd/eventlog_pal.c tftpd/syslogd.c
-    tftpd/sntpd.c tftpd/dns.c tftpd/dns_hosts.c
+    tftpd/sntpd.c tftpd/dns.c tftpd/dns_hosts.c tftpd/tftp_client.c
     tftpd/libs/linked_list/linked_list.c tftpd/libs/md5/md5.c tftpd/libs/lasterr/lasterr.c)
 target_link_libraries(tftpd32 PUBLIC libace_napi.z.so)
