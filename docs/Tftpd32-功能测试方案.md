@@ -293,6 +293,18 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 [tftpd_main.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/tftpd_main.c#L326-L334)
 改为 `MSG_TRUNC` 取真实长度，超过 `sizeof cnx_frame` 时按原版语义丢弃。
 
+**回归（2026-10-21，构建 `2949414`，配置 6900/3/6）**：RE-01~RE-07 全部复跑通过，与原版基线无回归。
+
+| 编号 | 回归结果 |
+|---|---|
+| RE-01 | 重传 0 / 1007 / 3016 / 6027 / 9035 / 12042 ms，随后 Error code=0（基线 0/1002/3005/6008/9012/12016，偏差 ≤30 ms） |
+| RE-02 | 垃圾包静默丢弃（`JUNK_REPLY: none`），10MB 传输完成且 md5 与源一致 |
+| RE-03 | opcode=9 → `00050004` Error 4 "Illegal TFTP operation" |
+| RE-04 | 34MB PUT（块号回绕到 4097）→ GET 69633 块，md5 `044c6245…` 一致 |
+| RE-05 | 516B 请求获 Error 1 应答；520B 静默丢弃（分辨率与原版一致） |
+| RE-06 | 连续 10 轮 PUT+GET：线程 32→33，VmRSS 194.8→196.7MB，无单调泄漏迹象 |
+| RE-07 | 传输中停服：监听端口立即消失、在途传输仍完整完成（md5 一致）、停服期间新请求超时无应答、重启后 20481 块 GET 成功 |
+
 已知差异（计入 M2）：应用 UI 尚无 WinSize 配置项，配置文件 `WinSize` 键可读但界面不可改。
 
 ### 6.5 TFTP 客户端（M2）
