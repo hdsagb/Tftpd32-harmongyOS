@@ -12,6 +12,26 @@ void Pal_SetEmitter (PAL_EMITTER fn) { s_pEmitter = fn; }
 static void Emit (const char *szType, const char *szJson)
 { if (s_pEmitter != NULL)  s_pEmitter (szType, szJson); }
 
+void PalJsonEscape (char *dst, int nDst, const char *src)
+{
+int i, n = 0;
+
+    if (src == NULL)  src = "";
+    for (i = 0; src[i] != 0 && n < nDst - 7; i++)
+    {
+        unsigned char c = (unsigned char) src[i];
+        if (c == '"' || c == '\\')  { dst[n++] = '\\';  dst[n++] = (char) c; }
+        else if (c < 0x20)          { n += snprintf (dst + n, nDst - n, "\\u%04x", c); }
+        else                        { dst[n++] = (char) c; }
+    }
+    dst[n] = 0;
+}
+
+void PalEmitEvent (const char *szType, const char *szJson)
+{
+    Emit (szType, szJson);
+}
+
 static void lstrcpyn_cpal (char *dst, int n, const char *src)
 { strncpy (dst, src, n - 1);  dst [n - 1] = 0; }
 
@@ -73,6 +93,17 @@ char szBuf [8192];
                      p->dwTransferId, p->opcode, szFile, szPeer,
                      ltime.tm_hour, ltime.tm_min, ltime.tm_sec);
             Emit ("trf", szBuf);
+            break;
+        }
+        case C_SYSLOG :
+        {
+            const struct S_SyslogMsg *pMsg = (const struct S_SyslogMsg *) msg_stuff;
+            char szFrom [64], szTxt [SYSLOG_MAXMSG + 8], szJson [SYSLOG_MAXMSG * 2 + 200];
+
+            PalJsonEscape (szFrom, sizeof szFrom, pMsg->from);
+            PalJsonEscape (szTxt,  sizeof szTxt,  pMsg->txt);
+            snprintf (szJson, sizeof szJson, "{\"from\":\"%s\",\"txt\":\"%s\"}", szFrom, szTxt);
+            PalEmitEvent ("syslog", szJson);
             break;
         }
         case C_SERVICES_STARTED : Emit ("started", "{}");  break;

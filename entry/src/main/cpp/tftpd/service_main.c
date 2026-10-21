@@ -198,9 +198,8 @@ void TftpdServiceStop (void)
 }
 
 /* ==================================================================
- * 临时链接桩：syslogd.c / sntpd.c / dns.c 尚未移植（TASK4-6 将删除本块，
+ * 临时链接桩：sntpd.c / dns.c 尚未移植（TASK5-6 将删除本块，
  * 届时由真实实现覆盖）。weak 保证后续加入强定义时不冲突。
  * ================================================================== */
-__attribute__((weak)) void SyslogProc (void *param)        { (void) param; }
 __attribute__((weak)) void SntpdProc  (void *param)        { (void) param; }
 __attribute__((weak)) void ListenDNSMessage (void *param)  { (void) param; }
