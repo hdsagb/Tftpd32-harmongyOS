@@ -14,6 +14,9 @@ struct S_Tftpd32Settings sSettings =
     0,                      // WinSize
     SECURITY_STD,           // SecurityLvl
     6900,                   // Port（应用禁止绑 <1024，原版默认 69，UI 可改）
+    0,                      // SyslogPort（0 → ReadSettings 末尾注入默认 5140）
+    0,                      // SntpPort（0 → 默认 1230）
+    0,                      // DnsPort（0 → 默认 5300）
     FALSE,                  // bHide
     TRUE,                   // bNegociate（RFC 1782-1785）
     FALSE,                  // bPXECompatibility
@@ -71,6 +74,9 @@ static const struct PalKey tKeys [] =
     { KEY_TIMEOUT,              & sSettings.Timeout,                PAL_T_INT, 0 },
     { KEY_MAXRETRANSMIT,        & sSettings.Retransmit,             PAL_T_INT, 0 },
     { KEY_PORT,                 & sSettings.Port,                   PAL_T_INT, 0 },
+    { KEY_SYSLOG_PORT,          & sSettings.SyslogPort,             PAL_T_INT, 0 },
+    { KEY_SNTP_PORT,            & sSettings.SntpPort,               PAL_T_INT, 0 },
+    { KEY_DNS_PORT,             & sSettings.DnsPort,                PAL_T_INT, 0 },
     { KEY_WINSIZE,              & sSettings.WinSize,                PAL_T_INT, 0 },
     { KEY_NEGOCIATE,            & sSettings.bNegociate,             PAL_T_INT, 0 },
     { KEY_PXE,                  & sSettings.bPXECompatibility,      PAL_T_INT, 0 },
@@ -148,6 +154,11 @@ char line [768];
             getcwd (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory);
         LogToMonitor ("PalSettings: working directory <%s>", sSettings.szWorkingDirectory);
     }
+
+    /* —— 服务端口缺省兜底：无配置文件或旧配置缺少键时 Port 均为 0 —— */
+    if (sSettings.SyslogPort == 0)  sSettings.SyslogPort = 5140;
+    if (sSettings.SntpPort   == 0)  sSettings.SntpPort   = 1230;
+    if (sSettings.DnsPort    == 0)  sSettings.DnsPort    = 5300;
 return TRUE;
 }
 
@@ -190,4 +201,17 @@ BOOL Pal_GetSettingInt (const char *key, unsigned *pVal)
 { int Ark;  for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
     if (strcmp (tKeys [Ark].name, key) == 0 && tKeys [Ark].type == PAL_T_INT)
     { * pVal = * (unsigned *) tKeys [Ark].p;  return TRUE; }
+return FALSE; }
+
+/* napi 桥按键名读取字符串（不区分大小写，复用 tKeys 表） */
+BOOL Pal_GetSettingStr (const char *szKey, char *szOut, int nOut)
+{ int Ark;
+    if (szOut == NULL || nOut <= 0)  return FALSE;
+    szOut [0] = 0;
+    for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
+        if (lstrcmpi (tKeys [Ark].name, szKey) == 0 && tKeys [Ark].type == PAL_T_STR)
+        {
+            lstrcpyn_pal (szOut, nOut, (char *) tKeys [Ark].p);
+            return TRUE;
+        }
 return FALSE; }

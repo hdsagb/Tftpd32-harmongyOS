@@ -24,6 +24,9 @@ struct S_Tftpd32Settings
     unsigned              WinSize;
     enum e_SecurityLevels SecurityLvl;
     unsigned              Port;
+    unsigned              SyslogPort;
+    unsigned              SntpPort;
+    unsigned              DnsPort;
     BOOL                  bHide;
     BOOL                  bNegociate;
     BOOL                  bPXECompatibility;
@@ -107,6 +110,9 @@ BOOL Tftpd32DestroySettings (void);
 #define KEY_TFTPLOGFILE            "TftpLogFile"
 #define KEY_SYSLOGFILE             "SaveSyslogFile"
 #define KEY_SYSLOGPIPE             "PipeSyslogMsg"
+#define KEY_SYSLOG_PORT            "SyslogPort"
+#define KEY_SNTP_PORT              "SntpPort"
+#define KEY_DNS_PORT               "DnsPort"
 #define KEY_VROOT                  "VirtualRoot"
 #define KEY_LOWEST_PORT            "LowestUDPPort"
 #define KEY_HIGHEST_PORT           "HighestUDPPort"
