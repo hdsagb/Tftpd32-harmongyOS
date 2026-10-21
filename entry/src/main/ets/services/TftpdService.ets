@@ -1,6 +1,7 @@
 import tftpd from 'libtftpd32.so';
 import { preferences } from '@kit.ArkData';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { buffer } from '@kit.ArkTS';
 
 // 与原版注册表键同名（settings.h KEY_GUI_REMANENCE）
 const KEY_GUI_REMANENCE = 'Keep transfer Gui';
@@ -28,19 +29,37 @@ export interface TftpdEvent {
   raw?: string;
 }
 
+export interface SyslogMsg { from: string; txt: string; }
+export interface DnsQuery  { name: string; ipv4: string; ipv6: string; }
+export interface ClientState {
+  state: string; bytes: number; size: number;
+  blk: number; rc: number; msg: string; md5: string;
+}
+export interface DirEntry { name: string; size: number; dir: number; }
+
 export class TftpdService {
   private static cfgPath: string = '';
   private static listeners: ((e: TftpdEvent) => void)[] = [];
   static readonly logs: string[] = [];
   static readonly transfers: TrfStat[] = [];
+  static readonly syslogs: SyslogMsg[] = [];
+  static readonly dnsQueries: DnsQuery[] = [];
+  static client: ClientState = { state: 'idle', bytes: 0, size: 0, blk: 0, rc: 0, msg: '', md5: '' };
+  static baseDir: string = '';
+
+  static readonly SERVICE_TFTP: number = 0x0001;
+  static readonly SERVICE_SYSLOG: number = 0x0008;
+  static readonly SERVICE_SNTP: number = 0x0010;
+  static readonly SERVICE_DNS: number = 0x0020;
 
   static async init(ctx: Context): Promise<void> {
     TftpdService.cfgPath = `${ctx.filesDir}/tftpd32.ini`;
     // TFTP 根目录：沙箱内固定目录（对齐原版开箱即用；用户选目录授权放里程碑3）
+    TftpdService.baseDir = `${ctx.filesDir}/tftpboot`;
     try {
-      fs.accessSync(`${ctx.filesDir}/tftpboot`);
+      fs.accessSync(TftpdService.baseDir);
     } catch (_e) {
-      try { fs.mkdirSync(`${ctx.filesDir}/tftpboot`); } catch (_e2) { /* 已存在 */ }
+      try { fs.mkdirSync(TftpdService.baseDir); } catch (_e2) { /* 已存在 */ }
     }
     tftpd.setConfigPath(TftpdService.cfgPath);
     tftpd.readSettings();     // 启动即恢复已保存配置，供界面回填
@@ -111,6 +130,22 @@ export class TftpdService {
           while (TftpdService.transfers.length > 100) TftpdService.transfers.shift();
         }
       } catch (_e) { /* 忽略坏帧 */ }
+    } else if (type === 'syslog') {
+      try {
+        const m = JSON.parse(json) as SyslogMsg;
+        TftpdService.syslogs.unshift(m);
+        if (TftpdService.syslogs.length > 200) TftpdService.syslogs.pop();
+      } catch (_e) { /* 忽略坏帧 */ }
+    } else if (type === 'dns') {
+      try {
+        const q = JSON.parse(json) as DnsQuery;
+        TftpdService.dnsQueries.unshift(q);
+        if (TftpdService.dnsQueries.length > 100) TftpdService.dnsQueries.pop();
+      } catch (_e) { /* 忽略坏帧 */ }
+    } else if (type === 'client') {
+      try {
+        TftpdService.client = JSON.parse(json) as ClientState;
+      } catch (_e) { /* 忽略坏帧 */ }
     }
     const ev = TftpdService.parseEvent(type, json);
     TftpdService.listeners.forEach(fn => fn(ev));
@@ -157,6 +192,54 @@ export class TftpdService {
   static getInt(key: string): number {
     const v = tftpd.getSettingInt(key);
     return v === undefined ? -1 : v;
+  }
+
+  static getStr(key: string): string {
+    return tftpd.getSettingStr(key);
+  }
+
+  static startMask(mask: number): boolean {
+    return tftpd.startServiceMask(mask);
+  }
+
+  static stopMask(mask: number): void {
+    tftpd.stopServiceMask(mask);
+  }
+
+  static startClient(opcode: number, host: string, port: number,
+                     remote: string, local: string, blkSize: number): boolean {
+    return tftpd.startTftpClient(opcode, host, port, remote, local, blkSize);
+  }
+
+  static md5(path: string): string {
+    return tftpd.computeMd5(path) ?? '';
+  }
+
+  static listDir(path: string): DirEntry[] {
+    try {
+      return JSON.parse(tftpd.listDirectory(path)) as DirEntry[];
+    } catch (_e) {
+      return [];
+    }
+  }
+
+  static readText(path: string): string {
+    try {
+      const f = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const stat = fs.statSync(path);
+      const buf = new ArrayBuffer(stat.size);
+      fs.readSync(f.fd, buf);
+      fs.closeSync(f);
+      return buffer.from(buf).toString('utf-8');
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  static writeText(path: string, text: string): void {
+    const f = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    fs.writeSync(f.fd, text);
+    fs.closeSync(f);
   }
 
   static start(): boolean {
