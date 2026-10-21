@@ -11,6 +11,7 @@ extern void TftpdMain (void *param);
 extern void SyslogProc (void *param);
 extern void SntpdProc (void *param);
 extern void ListenDNSMessage (void *param);
+extern void ListenDhcpMessage (void *param);
 
 struct S_PalService
 {
@@ -27,6 +28,7 @@ static struct S_PalService sServices [] =
     { TH_SYSLOG, SERVICE_SYSLOG, SyslogProc,        & sSettings.SyslogPort, "Syslog" },
     { TH_SNTP,   SERVICE_SNTP,   SntpdProc,         & sSettings.SntpPort,   "SNTP"   },
     { TH_DNS,    SERVICE_DNS,    ListenDNSMessage,  & sSettings.DnsPort,    "DNS"    },
+    { TH_DHCP,   SERVICE_DHCP,   ListenDhcpMessage, & sSettings.DhcpPort,   "DHCP"   },
 };
 
 /* 每个表项的线程是否真的创建过（pthread_t 不宜直接与 0 比较） */
@@ -188,11 +190,11 @@ void PalServiceStopMask (unsigned uMask)
 /* ---------- 兼容入口（napi_init.cpp / pal_compat.h 签名不可变） ---------- */
 int TftpdServiceStart (void)
 {
-    unsigned uSupported = SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS;
+    unsigned uSupported = SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS | SERVICE_DHCP;
     return PalServiceStartMask (sSettings.uServices & uSupported) > 0;
 }
 
 void TftpdServiceStop (void)
 {
-    PalServiceStopMask (SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS);
+    PalServiceStopMask (SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS | SERVICE_DHCP);
 }

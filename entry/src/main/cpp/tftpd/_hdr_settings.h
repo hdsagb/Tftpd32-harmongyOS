@@ -27,6 +27,7 @@ struct S_Tftpd32Settings
     unsigned              SyslogPort;
     unsigned              SntpPort;
     unsigned              DnsPort;
+    unsigned              DhcpPort;
     BOOL                  bHide;
     BOOL                  bNegociate;
     BOOL                  bPXECompatibility;
@@ -113,6 +114,7 @@ BOOL Tftpd32DestroySettings (void);
 #define KEY_SYSLOG_PORT            "SyslogPort"
 #define KEY_SNTP_PORT              "SntpPort"
 #define KEY_DNS_PORT               "DnsPort"
+#define KEY_DHCP_PORT              "DhcpPort"   /* 原版固定 67，鸿蒙不可绑特权端口 → 新增可配键 */
 #define KEY_VROOT                  "VirtualRoot"
 #define KEY_LOWEST_PORT            "LowestUDPPort"
 #define KEY_HIGHEST_PORT           "HighestUDPPort"

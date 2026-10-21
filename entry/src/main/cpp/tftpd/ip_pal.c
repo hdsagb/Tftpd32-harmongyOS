@@ -1,13 +1,160 @@
 //////////////////////////////////////////////////////////
-// ip_pal.c —— GetIPv4Address 等由 _services/ip_util.c 提供
-// （依赖 Windows IPHlpApi，不移植；里程碑1 用桩，里程碑3 经 getifaddrs 实现）
+// ip_pal.c —— _services/ip_util.c 的 POSIX 移植（getifaddrs 版）
+//   GetIPv4Address / FindNearestServerAddress / AddrInc / haddrtoa / timetoa 等
 // 另提供 UdpSend（_libs/mini_tcp4u/udp4u.c 的 POSIX 版，同签名）
 //        ScanDir（_libs/scandir 的 opendir 版，同签名）
 //////////////////////////////////////////////////////////
 #include "headers.h"
 #include <dirent.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
-int GetIPv4Address (const char *szIf, char *szIP) { szIP [0] = 0;  return -1; }
+/* ============================================================
+ * _services/ip_util.c 的 POSIX 移植（DHCP 依赖）
+ * 原版用 gethostbyname 枚举本机地址；鸿蒙上用 getifaddrs 更可靠
+ * ============================================================ */
+BOOL PalGetPrimaryIPv4 (struct in_addr *pAddr)
+{
+struct ifaddrs *pList = NULL, *pIt;
+BOOL bFound = FALSE;
+
+    pAddr->s_addr = htonl (INADDR_LOOPBACK);
+    if (getifaddrs (& pList) != 0)  return FALSE;
+    for (pIt = pList ; pIt != NULL ; pIt = pIt->ifa_next)
+    {
+        if (pIt->ifa_addr == NULL || pIt->ifa_addr->sa_family != AF_INET)  continue;
+        if ((pIt->ifa_flags & IFF_LOOPBACK) != 0)  continue;
+        pAddr->s_addr = ((struct sockaddr_in *) pIt->ifa_addr)->sin_addr.s_addr;
+        if (pAddr->s_addr != 0)
+        { bFound = TRUE;  break; }
+    }
+    freeifaddrs (pList);
+return bFound;
+}
+
+/* 在给定网段内找本机地址；bExact=FALSE 时找不到则回退第一个非回环地址 */
+struct in_addr *FindNearestServerAddress (struct in_addr *pHost, struct in_addr *pMask, BOOL bExact)
+{
+static struct in_addr sAddr;
+struct ifaddrs *pList = NULL, *pIt;
+BOOL bFirst = TRUE;
+
+    memset (& sAddr, 0, sizeof sAddr);
+    if (getifaddrs (& pList) != 0)  return bExact ? NULL : & sAddr;
+    for (pIt = pList ; pIt != NULL ; pIt = pIt->ifa_next)
+    {
+        struct in_addr tAddr;
+        if (pIt->ifa_addr == NULL || pIt->ifa_addr->sa_family != AF_INET)  continue;
+        if ((pIt->ifa_flags & IFF_LOOPBACK) != 0)  continue;
+        tAddr = ((struct sockaddr_in *) pIt->ifa_addr)->sin_addr;
+        if (bFirst)  { sAddr = tAddr;  bFirst = FALSE; }
+        if (bIPSameSubnet (& tAddr, pHost, pMask))
+        { sAddr = tAddr;  break; }
+    }
+    freeifaddrs (pList);
+
+    if (sAddr.s_addr == 0)
+    {
+        static struct in_addr sLoopback = { 0x0100007F };   /* 127.0.0.1（网络序） */
+        return bExact ? NULL : & sLoopback;
+    }
+return & sAddr;
+} /* FindNearestServerAddress */
+
+/* 取网卡地址：szIf 为空 → 首个非回环地址；否则按 IP 字面量或网卡名匹配 */
+int GetIPv4Address (const char *szIf, char *szIP)
+{
+struct ifaddrs *pList = NULL, *pIt;
+int  nRc = -1;
+
+    szIP [0] = 0;
+    if (getifaddrs (& pList) != 0)  return -1;
+    for (pIt = pList ; pIt != NULL ; pIt = pIt->ifa_next)
+    {
+        if (pIt->ifa_addr == NULL || pIt->ifa_addr->sa_family != AF_INET)  continue;
+        if ((pIt->ifa_flags & IFF_LOOPBACK) != 0)  continue;
+        if (szIf != NULL && szIf [0] != 0
+            && strcmp (pIt->ifa_name, szIf) != 0
+            && strcmp (inet_ntoa (((struct sockaddr_in *) pIt->ifa_addr)->sin_addr), szIf) != 0)
+            continue;
+        strcpy (szIP, inet_ntoa (((struct sockaddr_in *) pIt->ifa_addr)->sin_addr));
+        nRc = 0;
+        break;
+    }
+    freeifaddrs (pList);
+return nRc;
+}
+
+unsigned int AddrInc (struct in_addr in)
+{
+   unsigned int addr = ntohl (in.s_addr);
+   if ((addr & 0xff) == 254)  return addr + 3;   /* 跳过 .0/.1 */
+   if ((addr & 0xff) == 255)  return addr + 2;
+   return addr + 1;
+}
+
+int AddrFitsPool (struct in_addr *addr)
+{
+   return ntohl (addr->s_addr) >= ntohl (inet_addr (sParamDHCP.szAddr))
+       && ntohl (addr->s_addr) <  ntohl (inet_addr (sParamDHCP.szAddr)) + sParamDHCP.nPoolSize;
+}
+
+BOOL bIPSameSubnet (struct in_addr *p1, struct in_addr *p2, struct in_addr *pMask)
+{ return (p1->s_addr & pMask->s_addr) == (p2->s_addr & pMask->s_addr); }
+
+#define MAXHADDRLEN 16
+char * haddrtoa (const unsigned char *haddr, int hlen, char cSep)
+{
+static char haddrbuf [3 * MAXHADDRLEN + 1];
+char *bufptr;
+
+    if (hlen > MAXHADDRLEN)  hlen = MAXHADDRLEN;
+    bufptr = haddrbuf;
+    while (hlen > 0)
+    {
+        sprintf (bufptr, "%02X%c", (unsigned) (* haddr ++ & 0xFF), cSep);
+        bufptr += 3;
+        hlen --;
+    }
+    bufptr [-1] = 0;
+return haddrbuf;
+}
+
+void atohaddr (const unsigned char *addrstr, unsigned char *haddr, int haddrlen)
+{
+    if (haddrlen == 6)
+    {
+        int b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0;
+        sscanf ((const char *) addrstr, "%x:%x:%x:%x:%x:%x", & b0, & b1, & b2, & b3, & b4, & b5);
+        haddr [0] = (unsigned char) b0;  haddr [1] = (unsigned char) b1;
+        haddr [2] = (unsigned char) b2;  haddr [3] = (unsigned char) b3;
+        haddr [4] = (unsigned char) b4;  haddr [5] = (unsigned char) b5;
+    }
+}
+
+#define MAXTIMESTR  20      /* "mm/dd/yyyy/00:00:00" + 结束符 */
+char * timetoa (time_t t)
+{
+static char timebuf [MAXTIMESTR];
+struct tm *tt = localtime (& t);
+    if (tt == NULL)  timebuf [0] = 0;
+    else sprintf (timebuf, "%02d/%02d/%04d/%02d:%02d:%02d",
+                  tt->tm_mon + 1, tt->tm_mday, tt->tm_year + 1900,
+                  tt->tm_hour, tt->tm_min, tt->tm_sec);
+return timebuf;
+}
+
+time_t atotime (char *str)
+{
+struct tm t;
+    memset (& t, 0, sizeof t);
+    t.tm_isdst = -1;
+    sscanf (str, "%d/%d/%d/%d:%d:%d", & t.tm_mon, & t.tm_mday, & t.tm_year,
+             & t.tm_hour, & t.tm_min, & t.tm_sec);
+    t.tm_mon -= 1;
+    t.tm_year -= 1900;
+return mktime (& t);
+}
 int PoolNetworkInterfaces (void) { return TRUE; }   /* Scheduler 未移植，桩即可 */
 int AnswerIPList (void) { return TRUE; }
 void SendDirectoryContent (void) {}

@@ -16,6 +16,7 @@
 #include "_hdr_custom.h"         /* SYSLOG_MAXMSG 等，dialog_socket.h 依赖 */
 
 #include "bootpd_util.h"         /* S_DHCP_Param 等，dialog_socket.h 依赖 */
+#include "bootpd_functions.h"    /* DHCPReadConfig / DHCPSaveConfig / TranslateExp */
 
 #include "_hdr_dialog_socket.h"
 

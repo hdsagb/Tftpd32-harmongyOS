@@ -115,6 +115,7 @@ enum e_Services       { TFTPD32_NONE=0,
 #define SERVICE_SYSLOG        TFTPD32_SYSLOG_SERVER     /* 0x0008 */
 #define SERVICE_SNTP          TFTPD32_SNTP_SERVER       /* 0x0010 */
 #define SERVICE_DNS           TFTPD32_DNS_SERVER        /* 0x0020 */
+#define SERVICE_DHCP          TFTPD32_DHCP_SERVER       /* 0x0004（与原版 e_Services 一致） */
 
 // external files : .ini and .chm
 extern char                     szTftpd32Help [MAX_PATH];// Full path of the help file

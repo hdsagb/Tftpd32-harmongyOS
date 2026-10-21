@@ -82,6 +82,10 @@ typedef int SOCKET;
 #define lstrcat    strcat
 #define lstrlen(x) ((int)strlen(x))
 #define lstrcmpi(a,b) strcasecmp(a,b)
+#define lstrcmp(a,b)  strcmp(a,b)
+static inline char *PalStrCpyN (char *dst, const char *src, int n)
+{ if (n > 0) { strncpy (dst, src, n - 1);  dst [n - 1] = 0; }  return dst; }
+#define lstrcpyn(dst,src,n) PalStrCpyN((dst),(src),(n))
 #define MB_OK               0x00000000L
 #define MB_ICONSTOP         0x00000010L
 #define MB_ICONEXCLAMATION  0x00000030L
@@ -212,6 +216,22 @@ typedef struct in6_addr IN6_ADDR;
 /* ---------- 扩展事件（console_pal.c） ---------- */
 void PalEmitEvent (const char *szType, const char *szJson);
 void PalJsonEscape (char *dst, int nDst, const char *src);
+
+/* ---------- 配置键读写（registry_pal.c；键名与原版注册表一致） ---------- */
+#define REG_SZ     1
+#define REG_DWORD  4
+int  ReadKey   (const char *szRegPath, const char *szKey, void *buf, int BufSize,
+                int nType, const char *szIniFile);
+int  SaveKey   (const char *szRegPath, const char *szKey, const void *buf, int BufSize,
+                int nType, const char *szIniFile);
+int  AsyncSaveKey (const char *szRegPath, const char *szKey, const void *buf, int BufSize,
+                   int nType, const char *szIniFile);
+
+/* ---------- 网卡信息（ip_pal.c） ---------- */
+BOOL PalGetPrimaryIPv4 (struct in_addr *pAddr);   /* 第一个非回环 IPv4；无则返回 FALSE */
+
+/* ---------- DHCP 服务（bootpd.c） ---------- */
+int  PalDhcpLeasesJson (char *szOut, int nOut);   /* 租约表 → JSON（UI 轮询） */
 
 /* ---------- M2 服务与工具 ---------- */
 int  PalServiceStartMask (unsigned uMask);

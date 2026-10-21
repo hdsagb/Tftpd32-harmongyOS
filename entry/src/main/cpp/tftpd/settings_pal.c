@@ -17,6 +17,7 @@ struct S_Tftpd32Settings sSettings =
     0,                      // SyslogPort（0 → ReadSettings 末尾注入默认 5140）
     0,                      // SntpPort（0 → 默认 1230）
     0,                      // DnsPort（0 → 默认 5300）
+    0,                      // DhcpPort（0 → 默认 6700；原版 67 为特权端口）
     FALSE,                  // bHide
     TRUE,                   // bNegociate（RFC 1782-1785）
     FALSE,                  // bPXECompatibility
@@ -59,11 +60,20 @@ struct S_Tftpd32Settings sSettings =
 
 static char s_szCfgPath [MAX_PATH] = "";
 
+/* bootpd*.c 沿用原版全局变量（ReadKey/SaveKey 的路径参数），此处统一指向单一 ini */
+char szTftpd32IniFile [MAX_PATH] = "";
+char szTftpd32Help    [MAX_PATH] = "";
+
 static void lstrcpyn_pal (char *dst, int n, const char *src)
 { strncpy (dst, src, n - 1);  dst [n - 1] = 0; }
 
 void Pal_SetConfigPath (const char *szPath)   /* napi_init 传入沙箱路径 */
-{ lstrcpyn_pal (s_szCfgPath, sizeof s_szCfgPath, szPath); }
+{
+    lstrcpyn_pal (s_szCfgPath, sizeof s_szCfgPath, szPath);
+    lstrcpyn_pal (szTftpd32IniFile, sizeof szTftpd32IniFile, szPath);
+}
+
+const char * Pal_GetConfigPath (void) { return s_szCfgPath; }
 
 enum { PAL_T_INT, PAL_T_STR };
 struct PalKey { const char *name; void *p; int type; int size; };
@@ -77,6 +87,7 @@ static const struct PalKey tKeys [] =
     { KEY_SYSLOG_PORT,          & sSettings.SyslogPort,             PAL_T_INT, 0 },
     { KEY_SNTP_PORT,            & sSettings.SntpPort,               PAL_T_INT, 0 },
     { KEY_DNS_PORT,             & sSettings.DnsPort,                PAL_T_INT, 0 },
+    { KEY_DHCP_PORT,            & sSettings.DhcpPort,               PAL_T_INT, 0 },
     { KEY_WINSIZE,              & sSettings.WinSize,                PAL_T_INT, 0 },
     { KEY_NEGOCIATE,            & sSettings.bNegociate,             PAL_T_INT, 0 },
     { KEY_PXE,                  & sSettings.bPXECompatibility,      PAL_T_INT, 0 },
@@ -98,6 +109,25 @@ static const struct PalKey tKeys [] =
     { KEY_GUI_REMANENCE,        & sSettings.nGuiRemanence,          PAL_T_INT, 0 },
     { KEY_IPv6,                 & sSettings.bIPv6,                  PAL_T_INT, 0 },
     { KEY_PORT_OPTION,          & sSettings.bPortOption,            PAL_T_INT, 0 },
+
+    /* —— DHCP（键名与原版注册表一致；与 DHCPReadConfig 的表同源，重复装载无害）—— */
+    { KEY_DHCP_POOL,             sParamDHCP.szAddr,         PAL_T_STR, sizeof sParamDHCP.szAddr },
+    { KEY_DHCP_POOLSIZE,       & sParamDHCP.nPoolSize,      PAL_T_INT, 0 },
+    { KEY_DHCP_BOOTFILE,         sParamDHCP.szBootFile,     PAL_T_STR, sizeof sParamDHCP.szBootFile },
+    { KEY_DHCP_DNS,              sParamDHCP.szDns1,         PAL_T_STR, sizeof sParamDHCP.szDns1 },
+    { KEY_DHCP_DNS2,             sParamDHCP.szDns2,         PAL_T_STR, sizeof sParamDHCP.szDns2 },
+    { KEY_DHCP_WINS,             sParamDHCP.szWins,         PAL_T_STR, sizeof sParamDHCP.szWins },
+    { KEY_DHCP_MASK,             sParamDHCP.szMask,         PAL_T_STR, sizeof sParamDHCP.szMask },
+    { KEY_DHCP_DEFROUTER,        sParamDHCP.szGateway,      PAL_T_STR, sizeof sParamDHCP.szGateway },
+    { KEY_DHCP_OPTION42,         sParamDHCP.szOpt42,        PAL_T_STR, sizeof sParamDHCP.szOpt42 },
+    { KEY_DHCP_OPTION120,        sParamDHCP.szOpt120,       PAL_T_STR, sizeof sParamDHCP.szOpt120 },
+    { KEY_DHCP_DOMAINNAME,       sParamDHCP.szDomainName,   PAL_T_STR, sizeof sParamDHCP.szDomainName },
+    { KEY_DHCP_LEASE_TIME,     & sParamDHCP.nLease,         PAL_T_INT, 0 },
+    { KEY_PERS_LEASES,         & sSettings.bPersLeases,     PAL_T_INT, 0 },
+    { KEY_UNICAST_BOOTP,       & sSettings.bUnicastBOOTP,   PAL_T_INT, 0 },
+    { KEY_PING,                & sSettings.bPing,           PAL_T_INT, 0 },
+    { KEY_DOUBLE_ANSWER,       & sSettings.bDoubleAnswer,   PAL_T_INT, 0 },
+    { KEY_DHCP_LOCIP,            sSettings.szDHCPLocalIP,   PAL_T_STR, sizeof sSettings.szDHCPLocalIP },
 };
 
 BOOL Tftpd32ReadSettings (void)
@@ -168,25 +198,27 @@ char line [768];
     if (sSettings.SyslogPort == 0)  sSettings.SyslogPort = 5140;
     if (sSettings.SntpPort   == 0)  sSettings.SntpPort   = 1230;
     if (sSettings.DnsPort    == 0)  sSettings.DnsPort    = 5300;
+    if (sSettings.DhcpPort   == 0)  sSettings.DhcpPort   = 6700;
+
+    /* DHCP 参数（IP_Pool 等 27 键）装载；服务启动时 ListenDhcpMessage 会再次装载 */
+    DHCPReadConfig ();
 return TRUE;
 }
 
 BOOL Tftpd32SaveSettings (void)
 {
-FILE *f;
-int Ark;
+int Ark, nRc = 0;
     if (s_szCfgPath [0] == 0)  return FALSE;
-    f = fopen (s_szCfgPath, "w");
-    if (f == NULL)  return FALSE;
+    /* 逐键覆盖写，保留本表未登记的键（Lease_* 租约、AddOptionNumber* 等），
+       原版实现是 fopen("w") 整表重写，会把 DHCP 动态键抹掉 */
     for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
     {
         if (tKeys [Ark].type == PAL_T_INT)
-            fprintf (f, "%s=%u\n", tKeys [Ark].name, * (unsigned *) tKeys [Ark].p);
+            nRc += SaveKey (NULL, tKeys [Ark].name, tKeys [Ark].p, 0, REG_DWORD, NULL);
         else
-            fprintf (f, "%s=%s\n", tKeys [Ark].name, (char *) tKeys [Ark].p);
+            nRc += SaveKey (NULL, tKeys [Ark].name, tKeys [Ark].p, 0, REG_SZ, NULL);
     }
-    fclose (f);
-return TRUE;
+return nRc > 0;
 }
 
 BOOL Tftpd32DestroySettings (void)

@@ -108,4 +108,4 @@ time_t atotime(char* str);
 int AddrFitsPool(struct in_addr* addr);
 BOOL bIPSameSubnet (struct in_addr *p1, struct in_addr *p2, struct in_addr *pMask);
 struct in_addr *FindNearestServerAddress (struct in_addr *pHost, struct in_addr *pMask, BOOL bExact);
-unsigned long AddrInc(struct in_addr in);
+unsigned int AddrInc(struct in_addr in);   /* 原版 unsigned long 在 LP64 下为 8 字节，改定宽 32 位 */
