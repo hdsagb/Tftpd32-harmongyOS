@@ -18,6 +18,7 @@ BOOL   Tftpd32ReadSettings (void);
 BOOL   Tftpd32SaveSettings (void);
 BOOL   Pal_SetSettingInt   (const char *key, unsigned val);
 BOOL   Pal_SetSettingStr   (const char *key, const char *val);
+BOOL   Pal_GetSettingInt   (const char *key, unsigned *pVal);
 #ifdef __cplusplus
 }
 #endif
@@ -120,6 +121,26 @@ static napi_value SaveSettings (napi_env env, napi_callback_info /*info*/)
     return r;
 }
 
+/* GUI 启动时先读配置，再按键名取值回填控件 */
+static napi_value ReadSettings (napi_env env, napi_callback_info /*info*/)
+{
+    napi_value r;
+    napi_get_boolean (env, Tftpd32ReadSettings () ? true : false, & r);
+    return r;
+}
+
+static napi_value GetSettingInt (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  char key[64];  size_t n = 0;
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_string_utf8 (env, argv[0], key, sizeof key, & n);
+    unsigned v = 0;
+    napi_value r;
+    if (Pal_GetSettingInt (key, & v))  napi_create_int32 (env, (int) v, & r);
+    else                               napi_get_undefined (env, & r);
+    return r;
+}
+
 EXTERN_C_START
 static napi_value Init (napi_env env, napi_value exports)
 {
@@ -132,6 +153,8 @@ static napi_value Init (napi_env env, napi_value exports)
         { "setSettingInt",    nullptr, SetSettingInt, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "setSettingStr",    nullptr, SetSettingStr, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "saveSettings",     nullptr, SaveSettings,  nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "readSettings",     nullptr, ReadSettings,  nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getSettingInt",    nullptr, GetSettingInt, nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties (env, exports, sizeof (desc) / sizeof (desc[0]), desc);
     return exports;

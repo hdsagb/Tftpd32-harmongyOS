@@ -31,6 +31,7 @@ struct Index {
 
   aboutToAppear(): void {
     TftpdService.init(getContext(this));
+    this.loadSettings();
     this.baseDir = `${getContext(this).filesDir}/tftpboot`;
     TftpdService.subscribe(() => {
       this.logs = [...TftpdService.logs];
@@ -99,7 +100,7 @@ struct Index {
       Blank()
       Button('保存配置').width('100%')
         .onClick(() => {
-          const ok = TftpdService.save();
+          const ok = this.applySettings();     // 先把界面值写入设置并落盘
           TftpdService.logs.push(ok ? '配置已保存' : '保存失败');
           this.logs = [...TftpdService.logs];
         })
@@ -110,14 +111,27 @@ struct Index {
     return ['无', '标准', '高', '只读'][this.security] ?? '标准';
   }
 
-  private applySettings(): void {
+  private loadSettings(): void {
+    const p = TftpdService.getInt(KEY_PORT);
+    if (p > 0) this.port = `${p}`;
+    const s = TftpdService.getInt(KEY_SECURITY);
+    if (s >= 0) this.security = s;
+    const t = TftpdService.getInt(KEY_TIMEOUT);
+    if (t > 0) this.timeout = `${t}`;
+    const r = TftpdService.getInt(KEY_RETRANSMIT);
+    if (r > 0) this.retransmit = `${r}`;
+    const n = TftpdService.getInt(KEY_NEGOCIATE);
+    if (n >= 0) this.negociate = n !== 0;
+  }
+
+  private applySettings(): boolean {
     TftpdService.setInt(KEY_PORT, parseInt(this.port) || 6900);
     TftpdService.setInt(KEY_SECURITY, this.security);
     TftpdService.setInt(KEY_TIMEOUT, parseInt(this.timeout) || 3);
     TftpdService.setInt(KEY_RETRANSMIT, parseInt(this.retransmit) || 6);
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
     TftpdService.setStr(KEY_BASEDIR, this.baseDir);
-    TftpdService.save();
+    return TftpdService.save();
   }
 
   private async startContinuousTask(): Promise<void> {

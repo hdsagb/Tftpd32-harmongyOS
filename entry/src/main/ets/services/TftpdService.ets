@@ -35,6 +35,7 @@ export class TftpdService {
       try { fs.mkdirSync(`${ctx.filesDir}/tftpboot`); } catch (_e2) { /* 已存在 */ }
     }
     tftpd.setConfigPath(TftpdService.cfgPath);
+    tftpd.readSettings();     // 启动即恢复已保存配置，供界面回填
     tftpd.setEventCallback((type: string, json: string) => TftpdService.onEvent(type, json));
   }
 
@@ -94,6 +95,11 @@ export class TftpdService {
 
   static save(): boolean {
     return tftpd.saveSettings();
+  }
+
+  static getInt(key: string): number {
+    const v = tftpd.getSettingInt(key);
+    return v === undefined ? -1 : v;
   }
 
   static start(): boolean {

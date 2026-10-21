@@ -354,10 +354,27 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 
 | 编号 | 优先级 | 用例 | 步骤 | 预期 |
 |---|---|---|---|---|
-| CF-01 | P0 | 键名一致 | 导出原版注册表 `HKLM\SOFTWARE\TFTPD32` 值列表：`reg export HKLM\SOFTWARE\TFTPD32 tftpd32.reg`；对比应用配置文件 | §2.2 表中每个键在应用配置中同名存在 |
+| CF-01 | P0 | 键名一致 | 取原版配置基线（注册表 `HKLM\SOFTWARE\TFTPD32`，便携模式则为安装目录 `tftpd32.ini`）；对比应用配置文件 | §2.2 表中每个键在应用配置中同名存在 |
 | CF-02 | P0 | 值语义一致 | 两端设 Timeout=5、Retransmit=9、Port 各自合法值 | 行为一致（重传节奏） |
 | CF-03 | P1 | 配置持久化 | 应用改端口→保存→杀进程→重启 | 配置恢复，服务按新端口启动 |
 | CF-04 | P1 | 非法输入防御 | 端口填 99999/0、超时填 0 | 与原版一致（拒绝/回落默认），不崩溃 |
+
+#### 6.12.1 执行记录（2026-10-21，DevEco 模拟器 ↔ 本机原版 v4.74 便携版）
+
+本机原版为便携模式，未写注册表（`HKLM\SOFTWARE\TFTPD32` 不存在），实际配置基线为其目录下的 `tftpd32.ini`（键名与注册表值名一致），故 CF-01 以该文件比对。
+
+| 编号 | 步骤 | 结果 | 结论 |
+|---|---|---|---|
+| CF-01 | 把原版 `tftpd32.ini` 原样（含 `[TFTPD32]` 段头、`Donot verify firewall` / `LastWindowPos` 等仅 Windows 键）写入应用沙箱配置路径，重启应用 | 端口 6920、超时 4、重传 8 全部生效；`Enable IPv6=0` 正常；未知键静默忽略，不报错 | 通过。键名逐项同名（见下“键覆盖”），配置可直接迁移 |
+| CF-02 | 两端 Timeout=5 / MaxRetransmit=9，收 2 块后停止 ACK | 应用 0 / 2005 / 5013 / 10018 / 15027 / 20032 / 25050 ms；原版 1 / 2019 / 5034 / 10043 / 15050 / 20051 / 25063 ms | 通过，节奏一致 |
+| CF-03 | UI 改端口 6910、超时 5、重传 9 →「保存配置」→ `aa force-stop` → 重启 | 界面回填 6910/5/9，服务按 6910 监听 | 通过（**修复缺陷**：原实现启动不加载配置、保存按钮不写原生设置） |
+| CF-04 | 端口 99999、超时 0、重传 0 → 保存 → 启动服务 | 超时/重传回落默认 3/6；端口 99999 绑定失败，服务保持“已停止”，进程存活无崩溃 | 通过（回落默认，与原版 `Port==0` 回落默认端口语义一致） |
+
+键覆盖对照（原文 `tftpd32.ini` → 应用配置文件）：`BaseDirectory`、`SecurityLevel`、`Timeout`、`MaxRetransmit`、`TftpPort`、`WinSize`、`Negociate`、`PXECompatibility`、`DirText`、`ShowProgressBar`、`MD5`、`UnixStrings`、`Beep`、`VirtualRoot`、`LocalIP`、`Services`、`TftpLogFile`、`LowestUDPPort`、`HighestUDPPort`、`Max Simultaneous Transfers`、`Reduce TFTP Path`、`Ignore ack for last TFTP packet`、`Keep transfer Gui`、`Enable IPv6`、`Support for port Option` 均同名读写。本轮补入 `Enable IPv6`、`Support for port Option` 两个键。
+
+仍未接线的键（归属后续里程碑）：`SaveSyslogFile` / `PipeSyslogMsg`（M2 Syslog）、`MulticastPort` / `MulticastAddress`（M2 TFTP 组播）、`PersistantLeases` / `DHCP Ping` / `DHCP LocalIP`（M3 DHCP）；`Hide` / `UseEventLog` / `Console Password` / `LastWindowPos` / `Donot verify firewall` 为 Windows GUI/平台相关项，不适用。
+
+保存时应用只写自己的键集合，原版独有键会在重写时被丢弃（值本身已迁移，不影响行为）。
 
 ### 6.13 UI 等价性（随里程碑）
 

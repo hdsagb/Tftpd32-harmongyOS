@@ -89,6 +89,8 @@ static const struct PalKey tKeys [] =
     { KEY_REDUCE_PATH,          & sSettings.bReduceTFTPPath,        PAL_T_INT, 0 },
     { KEY_IGNORE_LASTBLOCK_ACK, & sSettings.bIgnoreLastBlockAck,    PAL_T_INT, 0 },
     { KEY_GUI_REMANENCE,        & sSettings.nGuiRemanence,          PAL_T_INT, 0 },
+    { KEY_IPv6,                 & sSettings.bIPv6,                  PAL_T_INT, 0 },
+    { KEY_PORT_OPTION,          & sSettings.bPortOption,            PAL_T_INT, 0 },
 };
 
 BOOL Tftpd32ReadSettings (void)
@@ -181,4 +183,11 @@ BOOL Pal_SetSettingStr (const char *key, const char *val)
 { int Ark;  for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
     if (strcmp (tKeys [Ark].name, key) == 0 && tKeys [Ark].type == PAL_T_STR)
     { lstrcpyn_pal ((char *) tKeys [Ark].p, tKeys [Ark].size, val);  return TRUE; }
+return FALSE; }
+
+/* napi 桥按键名读取（GUI 启动时恢复已保存配置） */
+BOOL Pal_GetSettingInt (const char *key, unsigned *pVal)
+{ int Ark;  for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
+    if (strcmp (tKeys [Ark].name, key) == 0 && tKeys [Ark].type == PAL_T_INT)
+    { * pVal = * (unsigned *) tKeys [Ark].p;  return TRUE; }
 return FALSE; }
