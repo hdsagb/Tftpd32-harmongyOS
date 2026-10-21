@@ -398,6 +398,25 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | UI-04 | P1 | 设置项映射 | 原 Settings 页的每个设置项在应用中存在对应控件（分里程碑补齐） |
 | UI-05 | P2 | 页签完整性 | 最终覆盖原版 8 页签对应功能 |
 
+#### 6.13.1 执行记录（2026-10-21，构建 `2949414` + 本轮 UI 修复构建）
+
+| 编号 | 结果 | 实测 |
+|---|---|---|
+| UI-01 | 通过 | 点开关 → `netstat` 出现 6900 监听、状态文字"运行中"；再点 → 端口消失、"已停止" |
+| UI-02 | 通过（修复 4 处） | 传输中行显示 `#467 <v_up.txt` + `127.0.0.1:41758 12:19:34` + `1536/1902 字节 ret=0 80%`，进度条随字节增长；结束后变 `#467 .v_up.txt` + `1902/1902 字节 100%`，行按 `Keep transfer Gui`（默认 10s，与原版 settings.c 一致）保留，超时后自动清除 |
+| UI-03 | 通过 | 切到日志页签，PUT 34MB（69633 块/9s）、GET 4 块、GET 不存在文件（Error 1）三类事件逐条实时追加并自动滚底；日志格式与原版一致（`sent N blks, M bytes in S s. R blk resent`） |
+| UI-04 | 部分通过 | 已映射：端口、根目录、安全级别、超时、重传次数、选项协商（键名同原版）；缺 WinSize（M2） |
+| UI-05 | 结构等价 | 原版 7 个页签（Tftp Server / Tftp Client / DHCP / Syslog / SNTP / DNS / Log viewer）中，Tftp Server→"TFTP"、Log viewer→"日志"、Settings 对话框→"设置"；其余 5 个服务页签随对应服务在 M2/M3 补齐 |
+
+UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
+
+| 缺陷 | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| BUG-002 | 传输行文件名消失 | stat 帧整表覆盖且不含文件名 | stat 刷新按 `id` 保留 `trf` 帧送来的文件名 |
+| BUG-003 | 时长恒为 0s | ForEach key 未含 `dur`，值变不触发重渲染 | key 加入 `file/peer/bytes/ret/done/rc` |
+| BUG-004 | `ret` 恒 0 | stat 帧误用 `ret_code`（运行中恒 0） | 改用 `dwTotalTimeOut`（原版 FD_TIMEOUT 列） |
+| BUG-005 | 结束后行立即消失、无 100%/STPD/ERR | 缺少 `C_TFTP_TRF_END` 转发 | `console_pal.c` 新增 `end` 事件，前端保留行并按 `Keep transfer Gui` 秒数清除 |
+
 ### 6.14 非功能（E1/E2）
 
 | 编号 | 优先级 | 用例 | 预期 |
@@ -432,3 +451,14 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | 编号 | 用例 | 现象 | 原版行为 | 鸿蒙版行为 | 复现步骤 | 严重级 | 状态 |
 |---|---|---|---|---|---|---|---|
 | BUG-001 | TF-06 | ... | Error code 1 | 无响应 | ... | P0 | Open |
+
+### 9.1 已修复（UI 等价性轮次）
+
+| 编号 | 用例 | 现象 | 原版行为 | 鸿蒙版行为（修复前） | 复现步骤 | 严重级 | 状态 |
+|---|---|---|---|---|---|---|---|
+| BUG-002 | UI-02 | 传输行丢失文件名 | 文件名列常驻 | stat 帧整表刷新后文件名变空 | 发起传输 → 等一个刷新周期 → 切 TFTP 页签 | P1 | Fixed |
+| BUG-003 | UI-02 | 时长恒 0s | 时长逐秒递增 | 状态已变但行不重渲染 | 传输中连续 dumpLayout，`dur` 不变 | P1 | Fixed |
+| BUG-004 | UI-02 | `ret` 恒 0 | FD_TIMEOUT 列显示重传次数 | 误取 `ret_code`（运行中恒 0） | 制造重传后查看行文本 | P1 | Fixed |
+| BUG-005 | UI-02 | 结束后行立即消失、无 100%/STPD/ERR | 保留 nGuiRemanence 秒并显示终态 | 未转发 `C_TFTP_TRF_END`，且 `nGuiRemanence` 默认写成 0 | 完成/中断一次传输后观察列表 | P1 | Fixed |
+
+补充：本轮将 `nGuiRemanence` 默认值由 0 校正为原版 settings.c 的 10（"Keep transfer Gui" 键随配置读写，迁移原版 ini 后行为一致）。

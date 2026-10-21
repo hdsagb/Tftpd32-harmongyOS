@@ -25,6 +25,7 @@ struct Index {
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
   private logScroller: Scroller = new Scroller();
+  private pruneTimer: number = -1;
   private securityOpts: SelectOption[] = [
     { value: '无' }, { value: '标准' }, { value: '高' }, { value: '只读' }
   ];
@@ -38,6 +39,14 @@ struct Index {
       this.transfers = [...TftpdService.transfers];
       this.logScroller.scrollEdge(Edge.Bottom);
     });
+    // 已结束行留存 10s 后清除（对齐原版 Keep transfer Gui）
+    this.pruneTimer = setInterval(() => {
+      if (TftpdService.pruneEnded()) this.transfers = [...TftpdService.transfers];
+    }, 1000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.pruneTimer !== -1) clearInterval(this.pruneTimer);
   }
 
   build() {
@@ -111,6 +120,33 @@ struct Index {
     return ['无', '标准', '高', '只读'][this.security] ?? '标准';
   }
 
+  // 原版 gui_tftpd.c AddNewTftpItem：文件名首尾带方向符（<下载 / >上传），
+  // 结束后 ManageTerminatedTransfers 把首字符替换为 '.'（ZOMBIE_STATUS）
+  private static trfName(t: TrfStat): string {
+    const f = t.file !== undefined ? t.file : '';
+    const d = t.opcode === 2 ? '>' : '<';
+    const cell = `${d}${f}${d}`;
+    return t.done === true ? `.${cell.substring(1)}` : cell;
+  }
+
+  private static percent(t: TrfStat): number {
+    if (t.size <= 0) return 0;
+    const p = Math.floor(t.bytes * 100 / t.size);
+    return p < 0 ? 0 : (p > 100 ? 100 : p);
+  }
+
+  // 原版 GUI 的“进度”列（gui_tftpd.c UpdateTftpItem）：
+  // 运行中显示百分比（总长不足 100 字节时显示 N/A），结束显示 100% / STPD / ERR
+  private static progLabel(t: TrfStat): string {
+    if (t.done === true && t.rc !== undefined) {
+      if (t.rc === 1) return '100%';
+      if (t.rc === 2) return 'STPD';
+      return 'ERR';
+    }
+    if (t.size >= 100) return `${Math.floor(t.bytes / (t.size / 100))}%`;
+    return 'N/A';
+  }
+
   private loadSettings(): void {
     const p = TftpdService.getInt(KEY_PORT);
     if (p > 0) this.port = `${p}`;
@@ -178,20 +214,21 @@ struct Index {
           ForEach(this.transfers, (t: TrfStat) => {
             ListItem() {
               Column({ space: 2 }) {
-                Text(t.file !== undefined && t.file !== ''
-                  ? `#${t.id}  ${t.file}`
-                  : `传输 #${t.id}`)
+                Text(`#${t.id}  ${Index.trfName(t)}`)
                   .fontSize(13).maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(`${t.bytes}/${t.size} 字节   ${t.dur ?? 0}s   ret=${t.ret}`)
+                Text(`${t.peer ?? ''}   ${t.start ?? ''}`)
+                  .fontSize(11).opacity(0.5).maxLines(1)
+                Text(`${t.bytes}/${t.size > 0 ? t.size : 'unknown'} 字节   ret=${t.ret}   ${Index.progLabel(t)}`)
                   .fontSize(11).opacity(0.7)
-                Progress({
-                  value: t.size > 0 ? Number(BigInt(t.bytes) * 100n / BigInt(t.size)) : 0,
-                  total: 100
-                }).width('100%')
+                Stack({ alignContent: Alignment.Start }) {
+                  Row().width('100%').height(4).backgroundColor('#E5E5E5').borderRadius(2)
+                  Row().width(`${Index.percent(t)}%`).height(4)
+                    .backgroundColor(t.done === true && t.rc !== 1 ? '#C94F4F' : '#0A59F7').borderRadius(2)
+                }.width('100%').height(4)
               }.padding(6)
             }
-          }, (t: TrfStat) => `${t.id}_${t.bytes}_${t.ret}`)
+          }, (t: TrfStat) => `${t.id}_${t.file}_${t.peer}_${t.bytes}_${t.ret}_${t.done}_${t.rc}`)
         }.layoutWeight(1)
       }
     }.padding(8)

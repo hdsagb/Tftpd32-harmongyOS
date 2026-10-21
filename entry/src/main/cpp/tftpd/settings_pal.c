@@ -40,7 +40,7 @@ struct S_Tftpd32Settings sSettings =
     FALSE,                  // bEventLog
     "tftpd32",              // szConsolePwd
     FALSE,                  // bPortOption
-    0,                      // nGuiRemanence
+    10,                     // nGuiRemanence（原 settings.c 默认：结束行保留 10 秒）
     FALSE,                  // bIgnoreLastBlockAck
     TRUE,                   // bIPv4
     TRUE,                   // bIPv6
