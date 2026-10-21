@@ -84,8 +84,8 @@ export struct DnsPage {
         .onChange((v: string) => { this.hosts = v; })
       Row({ space: 12 }) {
         Button('保存 hosts.txt').onClick(() => {
-          TftpdService.writeText(TftpdService.baseDir + '/hosts.txt', this.hosts);
-          this.status = '已保存';
+          const ok = TftpdService.writeText(TftpdService.baseDir + '/hosts.txt', this.hosts);
+          this.status = ok ? '已保存' : ('保存失败 ' + TftpdService.lastError);
         })
         Text(this.status).fontSize(14).fontColor('#0A59F7')
       }
@@ -104,9 +104,9 @@ export struct DnsPage {
 
 @Component
 export struct ClientPage {
-  @State host: string = '10.0.2.2';
-  @State port: string = '69';
-  @State remote: string = 'test_1k.txt';
+  @State host: string = '127.0.0.1';
+  @State port: string = TftpdService.getInt('Port') > 0 ? TftpdService.getInt('Port').toString() : '6900';
+  @State remote: string = '';
   @State local: string = '';
   @State blkSize: string = '0';
   @State st: ClientState = { state: 'idle', bytes: 0, size: 0, blk: 0, rc: 0, msg: '', md5: '' };
@@ -114,6 +114,7 @@ export struct ClientPage {
 
   aboutToAppear(): void {
     this.local = TftpdService.baseDir + '/client_dl.bin';
+    this.loadForm();
     this.syncState();
     this.timer = setInterval(() => {
       this.syncState();
@@ -135,6 +136,25 @@ export struct ClientPage {
 
   private busy(): boolean {
     return this.st.state === 'start' || this.st.state === 'progress';
+  }
+
+  /* 记住上一次客户端参数（host|port|remote|local|blkSize），下次进入自动回填、
+   * 便于重复传输时免去重输；文件缺失时保持页面默认值。 */
+  private loadForm(): void {
+    const txt = TftpdService.readText(TftpdService.baseDir + '/client_form.txt');
+    if (txt === '') return;
+    const f = txt.split('|');
+    if (f.length < 5) return;
+    this.host = f[0];
+    this.port = f[1];
+    this.remote = f[2];
+    if (f[3] !== '') this.local = f[3];
+    this.blkSize = f[4];
+  }
+
+  private saveForm(): void {
+    TftpdService.writeText(TftpdService.baseDir + '/client_form.txt',
+      [this.host, this.port, this.remote, this.local, this.blkSize].join('|'));
   }
 
   build() {
@@ -161,10 +181,12 @@ export struct ClientPage {
       }.width('100%')
       Row({ space: 16 }) {
         Button('下载 (GET)').onClick(() => {
+          this.saveForm();
           TftpdService.startClient(1, this.host, Number(this.port),
             this.remote, this.local, Number(this.blkSize));
         }).enabled(!this.busy())
         Button('上传 (PUT)').onClick(() => {
+          this.saveForm();
           TftpdService.startClient(2, this.host, Number(this.port),
             this.remote, this.local, Number(this.blkSize));
         }).enabled(!this.busy())

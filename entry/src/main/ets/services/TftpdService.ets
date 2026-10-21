@@ -1,6 +1,7 @@
 import tftpd from 'libtftpd32.so';
 import { preferences } from '@kit.ArkData';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { buffer } from '@kit.ArkTS';
 
 // 与原版注册表键同名（settings.h KEY_GUI_REMANENCE）
@@ -236,10 +237,24 @@ export class TftpdService {
     }
   }
 
-  static writeText(path: string, text: string): void {
-    const f = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    fs.writeSync(f.fd, text);
-    fs.closeSync(f);
+  static lastError: string = '';
+
+  static writeText(path: string, text: string): boolean {
+    TftpdService.lastError = '';
+    try {
+      const dir = path.substring(0, path.lastIndexOf('/'));
+      if (dir !== '' && !fs.accessSync(dir)) {
+        fs.mkdirSync(dir, true);
+      }
+      const f = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      fs.writeSync(f.fd, text);
+      fs.closeSync(f);
+      return true;
+    } catch (e) {
+      const err = e as BusinessError;
+      TftpdService.lastError = `${err.code}: ${err.message} [${path}]`;
+      return false;
+    }
   }
 
   static start(): boolean {

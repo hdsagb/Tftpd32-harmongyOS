@@ -18,7 +18,7 @@
 #define MAX_IPV6_ADDRESS 10
 #define DNS_CNAME     5			// canonical name	
 #define DNS_A         1			// ipv4 translation
-#define DNS_AAAA      2		// ipv6 translation
+#define DNS_AAAA      28		// ipv6 translation（RFC3596；原版误写为 2，2 仍兼容接受）
 #define DNS_IPV4_ADDR 1
 #define DNS_IPV6_ADDR 2
 #define CLASS_IN      1			// internet
@@ -130,7 +130,8 @@ int anslen=0;
       Rc = recvfrom (sDNSSocket, Buf, DNS_MAXMSG, 0, (struct sockaddr *) & sSock, & nDummy);
 	  if (Rc>0)
 	  { 
-		  if (AnswerDnsQuery ( (DNS_HEADER*)Buf, Rc, answer, & anslen ))
+		  anslen = 0;      /* 原版遗漏：未生成应答时 anslen 保留上次值，会回发过期报文 */
+		  if (AnswerDnsQuery ( (DNS_HEADER*)Buf, Rc, answer, & anslen ) && anslen > 0 )
 		  {
 		    Rc = sendto (sDNSSocket, answer, anslen, 0, (struct sockaddr *) & sSock, sizeof sSock);
 			// Feb 2019: ISSUE #7
@@ -179,7 +180,8 @@ int Rc;
 		}
 
 		if (      (sDNSQuestion.qclass == CLASS_IN)
-			 &&   (sDNSQuestion.qtype == DNS_A || sDNSQuestion.qtype == DNS_AAAA || sDNSQuestion.qtype == DNS_CNAME) )
+			 &&   (sDNSQuestion.qtype == DNS_A || sDNSQuestion.qtype == DNS_AAAA
+			    || sDNSQuestion.qtype == 2 || sDNSQuestion.qtype == DNS_CNAME) )
 		{
 			ProcessDnsQuery (& sDNSQuestion, &ans);
 			CreateAnswerMsg (  header, len, & sDNSQuestion, 
@@ -304,7 +306,23 @@ return FALSE;
 static int ProcessDnsQuery (const DNS_QUESTION_EXP *req, DNS_ANSWER_EXP *ans)
 {
 struct hostent *  lpHostEnt;
+IN6_ADDR v6 [10];
+int nb6 = 0;
+char cname [NI_MAXHOST];
 int Rc;
+
+	/* 先查本地 hosts.txt（鸿蒙构建未定义 IPv6，走本分支） */
+	if (PalDnsHostsLookup (req->name, (long *) & ans->ipv4, v6, & nb6, cname))
+	{
+		int Ark;
+		ans->qclass = req->qclass;
+		ans->qtype  = req->qtype;
+		for (Ark = 0 ; Ark < nb6 && Ark < MAX_IPV6_ADDRESS ; Ark ++)
+			ans->ipv6 [Ark] = v6 [Ark];
+		ans->nb_ipv6_address = Ark;
+		snprintf (ans->cname, sizeof ans->cname, "%s", cname);
+		return TRUE;
+	}
    lpHostEnt = gethostbyname (req->name);
    if (lpHostEnt!=NULL)
    {

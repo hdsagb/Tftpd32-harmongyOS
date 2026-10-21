@@ -89,6 +89,7 @@ static const struct PalKey tKeys [] =
     { KEY_TFTPLOCALIP,          & sSettings.szTftpLocalIP,          PAL_T_STR, sizeof sSettings.szTftpLocalIP },
     { KEY_SERVICES,             & sSettings.uServices,              PAL_T_INT, 0 },
     { KEY_TFTPLOGFILE,          & sSettings.szTftpLogFile,          PAL_T_STR, sizeof sSettings.szTftpLogFile },
+    { KEY_SYSLOGFILE,           & sSettings.szSyslogFile,           PAL_T_STR, sizeof sSettings.szSyslogFile },
     { KEY_LOWEST_PORT,          & sSettings.nTftpLowPort,           PAL_T_INT, 0 },
     { KEY_HIGHEST_PORT,         & sSettings.nTftpHighPort,          PAL_T_INT, 0 },
     { KEY_MAX_TRANSFERS,        & sSettings.dwMaxTftpTransfers,     PAL_T_INT, 0 },
@@ -115,6 +116,14 @@ char line [768];
                 if (pEq == NULL)  continue;
                 * pEq = 0;
                 line [strcspn (line, "\r\n")] = 0;
+                {   /* 去掉值尾部的 CR/LF 与空白：ini 的行结束符不能进入配置值
+                     * （否则 BaseDirectory 等字符串键会带 '\n'，拼路径时 ENOENT） */
+                    char *pVal = pEq + 1;
+                    char *pEnd = pVal + strlen (pVal);
+                    while (pEnd > pVal && (pEnd [-1] == '\n' || pEnd [-1] == '\r'
+                                        || pEnd [-1] == ' '  || pEnd [-1] == '\t'))
+                        * (-- pEnd) = 0;
+                }
                 for (Ark = 0 ; Ark < (int)(sizeof tKeys / sizeof tKeys [0]) ; Ark ++)
                     if (strcmp (tKeys [Ark].name, line) == 0)
                     {

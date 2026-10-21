@@ -17,8 +17,11 @@ typedef unsigned char *POINTER;
 /* UINT2 defines a two byte word */
 typedef unsigned short int UINT2;
 
-/* UINT4 defines a four byte word */
-typedef unsigned long int UINT4;
+/* UINT4 defines a four byte word
+ * 原文件用 unsigned long，在 LP64（鸿蒙/arm64、x86_64）下为 8 字节，
+ * 会破坏 MD5 的模 2^32 运算并算出错误摘要，故固定为 32 位。 */
+#include <stdint.h>
+typedef uint32_t UINT4;
 
 /* PROTO_LIST is defined depending on how PROTOTYPES is defined above.
 If using PROTOTYPES, then PROTO_LIST returns the list, otherwise it

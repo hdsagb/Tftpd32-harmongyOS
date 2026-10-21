@@ -12,6 +12,7 @@ const KEY_RETRANSMIT = 'MaxRetransmit';
 const KEY_NEGOCIATE = 'Negociate';
 const KEY_WINSIZE = 'WinSize';
 const KEY_SYSLOG_FILE = 'SaveSyslogFile';
+const KEY_SERVICES = 'Services';
 const BUNDLE_NAME = 'com.example.myapplication';
 const ABILITY_NAME = 'EntryAbility';
 
@@ -27,6 +28,9 @@ struct Index {
   @State winSize: string = '1';
   @State syslogFile: string = '';
   @State running: boolean = false;
+  @State syslogOn: boolean = false;
+  @State sntpOn: boolean = false;
+  @State dnsOn: boolean = false;
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
   private logScroller: Scroller = new Scroller();
@@ -78,6 +82,30 @@ struct Index {
         Toggle({ type: ToggleType.Switch, isOn: this.running })
           .onChange((on: boolean) => { this.toggleService(on) })
         Text(this.running ? '运行中' : '已停止').margin({ left: 8 })
+      }.width('100%')
+
+      Row() {
+        Text('Syslog 服务器').width(160)
+        Toggle({ type: ToggleType.Switch, isOn: this.syslogOn })
+          .onChange((on: boolean) => { this.syslogOn = on; this.toggleSub(0x0008, on) })
+        Text('端口 5140').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Blank()
+      }.width('100%')
+
+      Row() {
+        Text('SNTP 服务器').width(160)
+        Toggle({ type: ToggleType.Switch, isOn: this.sntpOn })
+          .onChange((on: boolean) => { this.sntpOn = on; this.toggleSub(0x0010, on) })
+        Text('端口 1230').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Blank()
+      }.width('100%')
+
+      Row() {
+        Text('DNS 服务器').width(160)
+        Toggle({ type: ToggleType.Switch, isOn: this.dnsOn })
+          .onChange((on: boolean) => { this.dnsOn = on; this.toggleSub(0x0020, on) })
+        Text('端口 5300').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Blank()
       }.width('100%')
 
       Row() {
@@ -180,9 +208,34 @@ struct Index {
     if (r > 0) this.retransmit = `${r}`;
     const n = TftpdService.getInt(KEY_NEGOCIATE);
     if (n >= 0) this.negociate = n !== 0;
-    const w = TftpdService.getStr(KEY_WINSIZE);
-    this.winSize = w === '' ? '1' : w;
+    const w = TftpdService.getInt(KEY_WINSIZE);   /* 整型键，须用 getInt 读取 */
+    this.winSize = w > 0 ? `${w}` : '1';
     this.syslogFile = TftpdService.getStr(KEY_SYSLOG_FILE);
+    const svc = TftpdService.getInt(KEY_SERVICES);
+    const mask = svc > 0 ? svc : 0x0001;
+    this.syslogOn = (mask & 0x0008) !== 0;
+    this.sntpOn = (mask & 0x0010) !== 0;
+    this.dnsOn = (mask & 0x0020) !== 0;
+  }
+
+  private serviceMask(): number {
+    let m = 0x0001;
+    if (this.syslogOn) m |= 0x0008;
+    if (this.sntpOn) m |= 0x0010;
+    if (this.dnsOn) m |= 0x0020;
+    return m;
+  }
+
+  private toggleSub(mask: number, on: boolean): void {
+    const cur = TftpdService.getInt(KEY_SERVICES);
+    let m = cur > 0 ? cur : 0x0001;
+    m = on ? (m | mask) : (m & ~mask);
+    TftpdService.setInt(KEY_SERVICES, m);
+    TftpdService.save();
+    if (this.running) {
+      if (on) TftpdService.startMask(mask);
+      else TftpdService.stopMask(mask);
+    }
   }
 
   private applySettings(): boolean {
@@ -193,6 +246,7 @@ struct Index {
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
     TftpdService.setInt(KEY_WINSIZE, Number(this.winSize));
     TftpdService.setStr(KEY_SYSLOG_FILE, this.syslogFile);
+    TftpdService.setInt(KEY_SERVICES, this.serviceMask());
     TftpdService.setStr(KEY_BASEDIR, this.baseDir);
     return TftpdService.save();
   }
