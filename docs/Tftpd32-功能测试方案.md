@@ -249,6 +249,20 @@ Set-Content D:\trae\tfpd32\root\test_1k.txt ("Tftpd32 test`r`n" * 100)
 本轮修复缺陷：`%I64d` / `%u`（MSVC 专有格式符，musl 下 tsize 输出空串）改为 `%lld`，
 涉及 tftpd_thread.c 三处（OACK 的 tsize、日志两处）。
 
+#### 6.2.2 组播执行记录（2026-10-22，C1 RFC2090，Pura 90 Pro 模拟器）
+
+配置：设置页 `MulticastAddress=239.255.0.1`、`MulticastPort=6969`（键名与原版一致），
+保存后启动服务，用设备内 `m2tool mcast` 发送带 `multicast` 选项的 RRQ。
+
+| 项 | 实测 | 结论 |
+|---|---|---|
+| OACK 协商 | 服务端回 `OACK: <multicast=239.255.0.1,6969,>`，日志 `multicast option accepted : 239.255.0.1,6969` | 通过；RFC2090 选项值格式为 `<地址>,<端口>` |
+| 组播发送 | 日志 `multicast transfer to 239.255.0.1:6969`；独立 socket 在 app 域 `SO_REUSEADDR` 绑定 6969 并 `IP_ADD_MEMBERSHIP` 成功 | 通过 |
+| 单播回归 | `m2tool get` 下载 4096 字节，MD5 `e9a56f976c51945a8cb5093215ab42ec` 与源文件一致 | 通过 |
+| 组播接收/ACK | `hdc shell` 域绑定 6969 被 SELinux 拒绝（EACCES），客户端无法加入组收取 DATA；OACK 协商仍可完成 | **阻塞**：需真机或非 shell 域客户端；同网段双客户端对拍随 A2/A3 |
+
+组播日志样例（应用日志页）：
+`multicast option accepted : 239.255.0.1,6969` → `OACK: <multicast=239.255.0.1,6969,>` → `multicast transfer to 239.255.0.1:6969`。
 
 ### 6.3 安全级别与路径（M1）
 
@@ -432,6 +446,13 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | CN-01 | P2 | 口令登录 | `nc <IP> <consolePort>` 输入 `tftpd32` | 进入命令界面 |
 | CN-02 | P2 | 状态命令 | 执行 STATUS 类命令 | 输出与服务状态一致 |
 
+**实现决策（2026-10-22，C5）：不做（架构差异）。** 核对原版源码 `reference/tftpd64/src/_services/to_console.c`：
+原版所谓的“控制台”是 GUI 与服务进程之间的 IPC 通道（监听 `TFTPD32_TCP_PORT`=13576，用 `Console Password`
+做 `TcpExchangeChallenge` 挑战应答，报文类型为 `C_START` / `C_TFTP_WRQ_SETTINGS` / `C_DHCP_RRQ_SETTINGS` 等），
+并非可交互的 Telnet 命令服务器。鸿蒙版为单进程（ArkUI + NAPI 直接回调），GUI 与服务共享同一内存，
+不存在需要跨进程同步的状态，也没有 STATUS 类命令接口；若按名字新建 Telnet 服务将是原版没有的新功能，
+违背“界面/行为等价”目标。因此 CN-01/CN-02 关闭为 N/A，`Console Password` 键保持未接线（与 B6 Ping 冲突检测同类）。
+
 ### 6.12 配置兼容性（M1 起）
 
 | 编号 | 优先级 | 用例 | 步骤 | 预期 |
@@ -495,6 +516,20 @@ UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
 | UI-05 | 通过 | 8 个页签均可点击且非空：设置 / TFTP / 日志 / Syslog / SNTP / DNS / 客户端 / 目录；3200×2080 与窄屏下 `barMode(Scrollable)` 不溢出 |
 
 原 UI-04 的“缺 WinSize”差异已消除；WinSize 仅做配置持久化与设置项映射，块窗口协商本身原版 v4.74 未实现（见 §5 平台偏差），故不涉及协议行为变化。
+
+#### 6.13.3 执行记录（2026-10-22，阶段 C：多网卡 / 2in1 / 常驻通知）
+
+| 项 | 环境 | 实测 | 结论 |
+|---|---|---|---|
+| C2 多网卡绑定 | Pura 90 Pro | 「绑定网卡（LocalIP）」下拉列出「全部接口」与 `10.0.2.15`；选择具体地址后 ini 写入 `LocalIP=10.0.2.15`，服务在 6900 启动，从该地址 GET 4096 字节 MD5 `e9a56f97…` 与源一致；切回「全部接口」写空值 | 通过 |
+| C3 自由窗口 | MateBook Pro（2in1，3120×2080） | 应用以自由窗口启动，标题栏含最大化/最小化/关闭；`Meta+←` 分屏后窗口占半屏（≈515vp），设置页各行完整、无截断，内容区 `Scroll` 可达保存按钮；9 个页签在半宽下仍全部可见 | 通过 |
+| C3 键盘操作 | MateBook Pro | `Tab`（keyCode 2049）在页签间移动焦点（焦点框依次右移），`Enter`（2054）激活当前焦点页签（设置→日志）；文本框可键入 | 通过 |
+| C3 窄屏页签 | Pura 90 Pro | 9 个页签 `BarMode.Scrollable` 横向滚动，不挤压换行 | 通过（M2 已验，本轮回归） |
+| C4 长时任务 | Pura 90 Pro | `TASK_KEEPING` 返回 9800005（模拟器不支持）；降级路径：服务启动成功后发布普通常驻通知 | 平台降级，行为可接受 |
+| C4 常驻通知 | Pura 90 Pro | 首次发布返回 1600004（应用通知未启用）；接入 `requestEnableNotification` 弹出授权，允许后重发成功，通知栏显示「Tftpd32 / 服务运行中（端口 6900）」；停止服务后通知消失 | 通过 |
+| C3 窗口标题 | MateBook Pro | 修复前标题栏与桌面图标显示 `label`（`EntryAbility_label` 为工程默认值）；改为 `Tftpd32`（`app_name`/`module_desc` 同步）后标题栏立即显示正确；桌面已存在的快捷方式标签由启动器缓存，卸载重装后显示 `Tftpd32` | 通过（BUG-014） |
+
+设置页同时新增「后台运行/省电策略」说明：服务运行期间申请长时任务，若系统提示耗电，引导用户在“设置 > 电池 > 应用耗电管理”允许后台活动。
 
 ### 6.14 非功能（E1/E2）
 
@@ -590,3 +625,11 @@ PC 侧 `tftpd32.exe` 与 `m2tool`/`cf` 工具对拍 → 退后台 8h 探测 → 
 | BUG-013 | UI-05 / DN-01 | DNS 页保存 hosts.txt 崩溃（13900002） | 正常保存 | 应用退出 | `TftpdService.writeText` 未捕获文件异常、目录不存在 | 加 try/catch、自动建目录、记录 `lastError` | P1 | Fixed |
 
 M2 同时确认的平台限制（非缺陷）：E1 模拟器只转发 TCP，TFTP/Syslog/SNTP/DNS 的 UDP 对拍只能在设备内环回（TC-01/02、SL、ST、DN 均按此方式执行），与原版 PC 的报文级对拍随 M3 真机执行；`MD-02`（传输自动 MD5）同此。
+
+### 9.3 已修复（阶段 C 轮次）
+
+| 编号 | 用例 | 现象 | 原版行为 | 鸿蒙版行为（修复前） | 根因 | 修复 | 严重级 | 状态 |
+|---|---|---|---|---|---|---|---|---|
+| BUG-014 | UI-01 / UI-05 | 2in1 窗口标题、桌面图标名显示 `label` | 标题为 `Tftpd32 v4.74` | 显示资源占位符 `label` | `AppScope/string.json` 只有 `app_name`，`entry` 的 `EntryAbility_label` 为工程模板值 `label`，且 `app_name` 为模板名 | `AppScope` 改为 `Tftpd32`；`EntryAbility_label`、`module_desc` 同步为 `Tftpd32` / `Tftpd32 for HarmonyOS` | P1 | Fixed |
+
+阶段 C 的平台限制（非缺陷）：模拟器 `TASK_KEEPING` 返回 9800005，长时任务降级为普通常驻通知；`hdc shell` 域禁止 bind 显式 UDP 端口，组播接收侧与 DHCP 二层广播对拍仍需真机。
