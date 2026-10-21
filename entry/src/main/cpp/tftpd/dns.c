@@ -359,9 +359,10 @@ struct S_DNS_NewEntry guimsg;
 	   cur->resource._class = htons (CLASS_IN);
 	   cur->resource.ttl = htonl (300);
 	   cur->resource.type = htons (DNS_A);
-	   cur->resource.data_len = htons (sizeof (long));
-	   * (long *) cur->rdata = (long) ans->ipv4;
-	   cur = (DNS_RES_RECORD *) ((char *) cur + sizeof (*cur) + sizeof (long));
+	   /* RFC1035：A 记录 RDATA 固定 4 字节（LP64 下不能用 sizeof(long)） */
+	   cur->resource.data_len = htons (4);
+	   memcpy (cur->rdata, & ans->ipv4, 4);
+	   cur = (DNS_RES_RECORD *) ((char *) cur + sizeof (*cur) + 4);
    }
    if (! IN6_IS_ADDR_UNSPECIFIED (ans->ipv6))
    {
