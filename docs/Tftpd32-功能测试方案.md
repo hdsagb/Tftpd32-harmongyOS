@@ -305,7 +305,7 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | RE-06 | 连续 10 轮 PUT+GET：线程 32→33，VmRSS 194.8→196.7MB，无单调泄漏迹象 |
 | RE-07 | 传输中停服：监听端口立即消失、在途传输仍完整完成（md5 一致）、停服期间新请求超时无应答、重启后 20481 块 GET 成功 |
 
-已知差异（计入 M2）：应用 UI 尚无 WinSize 配置项，配置文件 `WinSize` 键可读但界面不可改。
+已知差异（M2 已消除）：应用 UI 当时尚无 WinSize 配置项；M2 已补设置项与持久化，见 §6.13.2。
 
 ### 6.5 TFTP 客户端（M2）
 
@@ -314,6 +314,18 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | TC-01 | P1 | 从原版服务器 get | 客户端页签填 PC IP:69 下载 | 成功，文件出现在应用可读目录 |
 | TC-02 | P1 | 向原版服务器 put | 上传 | 成功 |
 | TC-03 | P2 | 目标不可达 | 填不存在 IP | 按 Timeout/Retransmit 重试后报错，不崩溃 |
+| TC-04 | P2 | 传输中切换服务开关 | 大文件传输中关服务再开 | 在途传输不受影响，重启后端口恢复监听 |
+
+#### 6.5.1 执行记录（2026-10-21，DevEco 模拟器，客户端页 ↔ 应用自带服务器 6900）
+
+模拟器仅做 TCP 端口转发、UDP 不通（`10.0.2.2` 不可达），故 TC-01/TC-02 的“与原版 PC 互通”退化为设备内环回：应用客户端 ↔ 应用服务器，报文格式与块协商逻辑不变；与原版互通的完整对拍留到 M3 真机。
+
+| 编号 | 操作 | 结果 | 结论 |
+|---|---|---|---|
+| TC-01 | 客户端页 GET `127.0.0.1:6900 hosts.txt` → 本地 `client_dl.bin` | `状态：done 块 1 37/37 错误码 0`，`client_dl.bin` 37 字节，MD5 与 PC `certutil` 一致 | 通过 |
+| TC-02 | PUT 本地文件为远端 `up_hosts.txt` | `up_hosts.txt` 37 字节，MD5 与源文件一致，往返无差异 | 通过 |
+| TC-03 | 端口改为 6999（无监听）后 GET | `状态：error 块 0 0/0 错误码 -1`，消息 `timeout`，界面不卡死 | 通过 |
+| TC-04 | 34MB PUT（blksize 512，4097 块）进行中，点主服务开关关闭 → 探测无应答 → 再开启 → 探测有应答 | 停服前 `reply=28`（ERR 包）；停服中 `reply=none` 且客户端仍持有 OACK 继续传；重启后 `reply=28`；传输完成 `put ok: 35651584 bytes, 4097 blocks`，落盘文件 MD5 `044c6245…` 与源一致 | 通过 |
 
 ### 6.6 Syslog 服务器（M2）
 
@@ -323,12 +335,28 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | SL-02 | P2 | 落盘（SaveSyslogFile） | 配置日志文件后发多条 | 文件追加记录 |
 | SL-03 | P2 | 超长/畸形消息 | 发 >SYSLOG_MAXMSG 字节 | 截断处理，不崩溃 |
 
+#### 6.6.1 执行记录（2026-10-21，设备内环回，`m2tool syslog`）
+
+| 编号 | 操作 | 结果 | 结论 |
+|---|---|---|---|
+| SL-01 | 设置页开启 Syslog（5140），`m2tool syslog 127.0.0.1 5140 1 30` | Syslog 页签实时逐条出现 `<134>Mar  1 12:00:00 m2test: message #N`，来源列 `127.0.0.1` | 通过 |
+| SL-02 | `SaveSyslogFile=<filesDir>/tftpboot/device_syslog.txt`，发 3 条后查看文件 | 文件 237 字节，逐行 `Wed Oct 21 17:43:16 2026;127.0.0.1; <134>…`，与界面一致 | 通过（**修复缺陷**：键未登记，见 BUG-011） |
+| SL-03 | 发 2 字节畸形报文 | 无新条目、无崩溃，`m2tool bad` 探测 `reply=none` 后继续发合法消息仍正常显示 | 通过 |
+
 ### 6.7 SNTP 服务器（M2）
 
 | 编号 | 优先级 | 用例 | 步骤 | 预期 |
 |---|---|---|---|---|
 | ST-01 | P1 | NTP 查询应答 | `w32tm /stripchart /computer:<IP> /dataonly /samples:1` | 收到应答，偏差为两机时钟差（秒级合理） |
 | ST-02 | P2 | 畸形 NTP 包 | 发 3 字节 UDP 包 | 丢弃，不崩溃 |
+
+#### 6.7.1 执行记录（2026-10-21，设备内环回，`m2tool ntp`）
+
+| 编号 | 操作 | 结果 | 结论 |
+|---|---|---|---|
+| ST-01 | `m2tool ntp 127.0.0.1 1230` | 应答 48 字节，`mode=4 stratum=10`，`unix` 与设备时间偏差 ≤2s | 通过 |
+| ST-02 | 连续 20 次查询 | 20/20 均应答，无 loop-detection 误判、无丢包 | 通过 |
+| ST-03 | 先发 20 字节畸形包，再发合法请求 | 畸形包无应答（`reply=none`），随后合法请求正常返回 48 字节，服务存活 | 通过 |
 
 ### 6.8 DNS 服务器（M2）
 
@@ -337,6 +365,20 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 | DN-01 | P1 | A 记录命中 | GUI 配置 `myhost→192.168.1.100`，`nslookup myhost <IP>` | 返回 192.168.1.100 |
 | DN-02 | P2 | 未配置域名 | `nslookup nosuch <IP>` | NXDOMAIN/空应答，与原版一致 |
 | DN-03 | P2 | AAAA 查询 | 配置 IPv6 地址后查询 | 返回 AAAA 记录 |
+| DN-04 | P2 | 超长标签 | 构造 64 字符标签查询 | 静默丢弃，不崩溃 |
+
+#### 6.8.1 执行记录（2026-10-21，设备内环回，DNS 页 hosts.txt + `m2tool dns`）
+
+hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
+
+| 编号 | 操作 | 结果 | 结论 |
+|---|---|---|---|
+| DN-01 | `m2tool dns 127.0.0.1 5300 myhost 1` | `reply 40 bytes rcode=0 an=1 type=1 ttl=300 rdata=192.168.1.100`（RDATA 恰 4 字节，符合 RFC1035） | 通过（**修复缺陷**：LP64 下 RDATA 长度错误，见 BUG-006） |
+| DN-02 | `m2tool dns 127.0.0.1 5300 nosuch 1` | `rcode=4 an=0`，与原版“无记录即 NXDOMAIN”一致 | 通过 |
+| DN-03 | `m2tool dns 127.0.0.1 5300 myhost6 28` | `reply 53 bytes rcode=0 an=1 type=28 ttl=300 rdata=::1` | 通过（**修复缺陷**：原版 AAAA 类型码误写 2，见 BUG-008） |
+| DN-04 | 发送 64 字符标签查询（`timeout 5` 包裹） | 无应答（`rc=124`），与原版静默丢弃一致；随后 DN-01 仍正常，进程未崩溃 | 通过 |
+
+补充：对畸形/不支持的查询（qtype 非 A/AAAA/CNAME）不再回发上一请求的应答，`anslen` 每轮复位（见 BUG-009）。
 
 ### 6.9 MD5 工具（M2）
 
@@ -344,6 +386,15 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 |---|---|---|---|---|
 | MD-01 | P2 | 手动计算文件 MD5 | 对 test_1k.txt 计算 | 与 `certutil -hashfile test_1k.txt MD5` 一致 |
 | MD-02 | P2 | 传输后自动 MD5（bMD5） | 开启 MD5 选项后传输 | 日志/界面显示的哈希与 certutil 一致 |
+| MD-03 | P2 | 目录列表 | 目录页刷新 | 文件/子目录、大小显示正确 |
+
+#### 6.9.1 执行记录（2026-10-21，目录页，MD5 按钮）
+
+| 编号 | 操作 | 结果 | 结论 |
+|---|---|---|---|
+| MD-01 | 目录页对 `hosts.txt`（37 字节）点 MD5 | `hosts.txt: ecb492e43bb51bd9c2b6f0360bd83a60`，与 PC `certutil -hashfile hosts.txt MD5` 完全一致 | 通过（**修复缺陷**：LP64 下 UINT4 为 8 字节，见 BUG-007） |
+| MD-02 | 设置页开 `MD5=1` 后由 PC 向设备 PUT | 未执行 | 受 E1 模拟器 UDP 不通限制，随 M3 真机 TC 对拍执行 |
+| MD-03 | 目录页刷新 | 依次显示 `up_hosts.txt`、`client_dl.bin`、`hosts.txt`、`client_form.txt` 及大小，每行带 MD5 按钮 | 通过 |
 
 ### 6.10 DHCP 服务器（M3，E2）
 
@@ -384,7 +435,7 @@ EMSGSIZE（Rc<0）直接丢弃，导致 RE-05 长包行为不一致（应用回 
 
 键覆盖对照（原文 `tftpd32.ini` → 应用配置文件）：`BaseDirectory`、`SecurityLevel`、`Timeout`、`MaxRetransmit`、`TftpPort`、`WinSize`、`Negociate`、`PXECompatibility`、`DirText`、`ShowProgressBar`、`MD5`、`UnixStrings`、`Beep`、`VirtualRoot`、`LocalIP`、`Services`、`TftpLogFile`、`LowestUDPPort`、`HighestUDPPort`、`Max Simultaneous Transfers`、`Reduce TFTP Path`、`Ignore ack for last TFTP packet`、`Keep transfer Gui`、`Enable IPv6`、`Support for port Option` 均同名读写。本轮补入 `Enable IPv6`、`Support for port Option` 两个键。
 
-仍未接线的键（归属后续里程碑）：`SaveSyslogFile` / `PipeSyslogMsg`（M2 Syslog）、`MulticastPort` / `MulticastAddress`（M2 TFTP 组播）、`PersistantLeases` / `DHCP Ping` / `DHCP LocalIP`（M3 DHCP）；`Hide` / `UseEventLog` / `Console Password` / `LastWindowPos` / `Donot verify firewall` 为 Windows GUI/平台相关项，不适用。
+仍未接线的键（归属后续里程碑）：`PipeSyslogMsg`（M2 Syslog 事件转发，已由 `console_pal.c` 事件通道承担）、`MulticastPort` / `MulticastAddress`（M2 TFTP 组播）、`PersistantLeases` / `DHCP Ping` / `DHCP LocalIP`（M3 DHCP）；`Hide` / `UseEventLog` / `Console Password` / `LastWindowPos` / `Donot verify firewall` 为 Windows GUI/平台相关项，不适用。M2 已补 `SaveSyslogFile` 落盘（见 §6.6.1），`WinSize` 已加 UI 设置项（见 §6.13.2）。
 
 保存时应用只写自己的键集合，原版独有键会在重写时被丢弃（值本身已迁移，不影响行为）。
 
@@ -416,6 +467,15 @@ UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
 | BUG-003 | 时长恒为 0s | ForEach key 未含 `dur`，值变不触发重渲染 | key 加入 `file/peer/bytes/ret/done/rc` |
 | BUG-004 | `ret` 恒 0 | stat 帧误用 `ret_code`（运行中恒 0） | 改用 `dwTotalTimeOut`（原版 FD_TIMEOUT 列） |
 | BUG-005 | 结束后行立即消失、无 100%/STPD/ERR | 缺少 `C_TFTP_TRF_END` 转发 | `console_pal.c` 新增 `end` 事件，前端保留行并按 `Keep transfer Gui` 秒数清除 |
+
+#### 6.13.2 执行记录（2026-10-21，M2 补齐 WinSize 与 8 页签）
+
+| 编号 | 结果 | 实测 |
+|---|---|---|
+| UI-04 | 通过（修复 2 处缺陷） | 设置页新增 `WinSize（RFC7440）` 与 `Syslog 日志文件` 两个输入项；`WinSize=2`、`SaveSyslogFile=…/device_syslog.txt` 保存后 `aa force-stop` → 重启，界面回填 `2` 与完整路径，配置文件同名键存在（BUG-010 WinSize 读取、BUG-011 键未登记） |
+| UI-05 | 通过 | 8 个页签均可点击且非空：设置 / TFTP / 日志 / Syslog / SNTP / DNS / 客户端 / 目录；3200×2080 与窄屏下 `barMode(Scrollable)` 不溢出 |
+
+原 UI-04 的“缺 WinSize”差异已消除；WinSize 仅做配置持久化与设置项映射，块窗口协商本身原版 v4.74 未实现（见 §5 平台偏差），故不涉及协议行为变化。
 
 ### 6.14 非功能（E1/E2）
 
@@ -462,3 +522,18 @@ UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
 | BUG-005 | UI-02 | 结束后行立即消失、无 100%/STPD/ERR | 保留 nGuiRemanence 秒并显示终态 | 未转发 `C_TFTP_TRF_END`，且 `nGuiRemanence` 默认写成 0 | 完成/中断一次传输后观察列表 | P1 | Fixed |
 
 补充：本轮将 `nGuiRemanence` 默认值由 0 校正为原版 settings.c 的 10（"Keep transfer Gui" 键随配置读写，迁移原版 ini 后行为一致）。
+
+### 9.2 已修复（M2 服务与工具轮次）
+
+| 编号 | 用例 | 现象 | 原版行为 | 鸿蒙版行为（修复前） | 根因 | 修复 | 严重级 | 状态 |
+|---|---|---|---|---|---|---|---|---|
+| BUG-006 | DN-01 | A 记录 RDATA 长度为 0 | 4 字节地址 | DNS 应答无有效 A 地址 | 原版用 `sizeof(long)` 作 RDATA 长度并写入 8 字节 `long`，LP64 下 RDLENGTH=8，违反 RFC1035 | [dns.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/dns.c) 固定 `htons(4)` 并只拷贝 4 字节 | P0 | Fixed |
+| BUG-007 | MD-01 | MD5 摘要与 PC 不一致（`574f9779…` vs `ecb492e4…`） | 标准 MD5 | 同一文件摘要不同 | `libs/md5/global.h` 以 `unsigned long` 定义 `UINT4`，LP64 下为 8 字节，破坏模 2^32 运算 | 改为 `uint32_t` | P1 | Fixed |
+| BUG-008 | DN-03 | AAAA 查询无应答 | 返回 AAAA 记录 | `myhost6 28` 被过滤 | 原版 `DNS_AAAA` 误定义为 2（标准/`nslookup` 用 28） | 定义改为 28，并兼容接受 2 | P2 | Fixed |
+| BUG-009 | DN-04 | 畸形/不支持查询会收到上一次的应答 | 静默丢弃 | 回发过期报文 | `anslen` 为循环外变量，未生成应答时保留旧值 | 每轮 `anslen=0`，且 `anslen>0` 才 sendto | P1 | Fixed |
+| BUG-010 | UI-04 | WinSize 保存 2，重启后界面显示 1 | 回填 2 | 回填默认 1 | 整型键用 `Pal_GetSettingStr` 读取，类型不匹配返回空 | [Index.ets](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/ets/pages/Index.ets) 改用 `getInt` | P1 | Fixed |
+| BUG-011 | SL-02 / UI-04 | `SaveSyslogFile` 保存后配置文件中无该键 | 键持久化 | 重启后丢失 | `settings_pal.c` 的 `tKeys[]` 未登记 `KEY_SYSLOGFILE` | 补登记（键名 `SaveSyslogFile`） | P2 | Fixed |
+| BUG-012 | CF-01 | 迁移原版 ini 后根目录拼出 `ENOENT` | 正常解析 | 路径尾部带换行 | 读 ini 时值尾部 CR/LF 未裁剪 | 解析后裁掉 CR/LF/空白 | P1 | Fixed |
+| BUG-013 | UI-05 / DN-01 | DNS 页保存 hosts.txt 崩溃（13900002） | 正常保存 | 应用退出 | `TftpdService.writeText` 未捕获文件异常、目录不存在 | 加 try/catch、自动建目录、记录 `lastError` | P1 | Fixed |
+
+M2 同时确认的平台限制（非缺陷）：E1 模拟器只转发 TCP，TFTP/Syslog/SNTP/DNS 的 UDP 对拍只能在设备内环回（TC-01/02、SL、ST、DN 均按此方式执行），与原版 PC 的报文级对拍随 M3 真机执行；`MD-02`（传输自动 MD5）同此。
