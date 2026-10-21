@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <pthread.h>
 #include <time.h>
+#include <dirent.h>
 #include <assert.h>
 
 /* Windows CRT/安全函数 → POSIX 等价 */
@@ -188,6 +189,38 @@ BOOL   ReleaseMutex (HANDLE h);
 /* ---------- 服务启停（service_main.c） ---------- */
 int  TftpdServiceStart (void);
 void TftpdServiceStop  (void);
+
+/* ---------- SYSTEMTIME（sntpd.c 使用） ---------- */
+typedef struct
+{
+    WORD  wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds;
+} SYSTEMTIME;
+
+void  GetSystemTime (SYSTEMTIME *pst);
+DWORD GetTickCount (void);
+DWORD SetFilePointer (HANDLE h, LONG dist, LONG *pHigh, DWORD method);
+
+/* ---------- 套接字别名（syslogd.c / dns.c 原样使用） ---------- */
+/* LPSOCKADDR 已在上方 Socket 段定义，此处不重复 typedef */
+typedef struct in6_addr IN6_ADDR;
+
+#ifndef __isascii
+#define __isascii(c) (((unsigned char)(c)) < 0x80)
+#endif
+
+/* ---------- 扩展事件（console_pal.c） ---------- */
+void PalEmitEvent (const char *szType, const char *szJson);
+void PalJsonEscape (char *dst, int nDst, const char *src);
+
+/* ---------- M2 服务与工具 ---------- */
+int  PalServiceStartMask (unsigned uMask);
+void PalServiceStopMask  (unsigned uMask);
+int  PalClientStart (int opcode, const char *szHost, int nPort,
+                     const char *szRemote, const char *szLocal, int nBlkSize);
+BOOL PalComputeMd5 (const char *szPath, char *szOut, int nOut);
+int  PalListDirectory (const char *szPath, char *szJson, int nJson);
+BOOL PalDnsHostsLookup (const char *szName, long *plIpv4, IN6_ADDR *pIpv6,
+                        int *pnNbV6, char *szCname);
 
 #ifdef __cplusplus
 }

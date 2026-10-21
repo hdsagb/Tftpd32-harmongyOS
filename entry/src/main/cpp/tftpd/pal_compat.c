@@ -177,3 +177,37 @@ BOOL ReleaseMutex (HANDLE h)
 { pthread_mutex_unlock (& h->mx);  return TRUE; }
 
 void Sleep (DWORD ms) { usleep (ms * 1000u); }
+
+void GetSystemTime (SYSTEMTIME *pst)
+{
+struct timespec ts;
+struct tm tmv;
+
+    clock_gettime (CLOCK_REALTIME, & ts);
+    gmtime_r (& ts.tv_sec, & tmv);
+    pst->wYear         = (WORD)(tmv.tm_year + 1900);
+    pst->wMonth        = (WORD)(tmv.tm_mon + 1);
+    pst->wDayOfWeek    = (WORD) tmv.tm_wday;
+    pst->wDay          = (WORD) tmv.tm_mday;
+    pst->wHour         = (WORD) tmv.tm_hour;
+    pst->wMinute       = (WORD) tmv.tm_min;
+    pst->wSecond       = (WORD) tmv.tm_sec;
+    pst->wMilliseconds = (WORD)(ts.tv_nsec / 1000000);
+}
+
+DWORD GetTickCount (void)
+{
+struct timespec ts;
+
+    clock_gettime (CLOCK_MONOTONIC, & ts);
+    return (DWORD)((long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+DWORD SetFilePointer (HANDLE h, LONG dist, LONG *pHigh, DWORD method)
+{
+off_t rc;
+
+    rc = lseek (h->fd, (off_t) dist, (int) method);
+    if (pHigh != NULL)  *pHigh = 0;
+    return (DWORD) rc;
+}
