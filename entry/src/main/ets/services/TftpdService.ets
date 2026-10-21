@@ -37,6 +37,8 @@ export interface ClientState {
   blk: number; rc: number; msg: string; md5: string;
 }
 export interface DirEntry { name: string; size: number; dir: number; }
+// DHCP 租约行（bootpd.c PalDhcpLeasesJson）；state: free|offer|ack|expired
+export interface DhcpLease { ip: string; mac: string; alloc: number; renew: number; state: string; }
 
 export class TftpdService {
   private static cfgPath: string = '';
@@ -52,6 +54,7 @@ export class TftpdService {
   static readonly SERVICE_SYSLOG: number = 0x0008;
   static readonly SERVICE_SNTP: number = 0x0010;
   static readonly SERVICE_DNS: number = 0x0020;
+  static readonly SERVICE_DHCP: number = 0x0004;   // 原版 e_Services 位定义
 
   static async init(ctx: Context): Promise<void> {
     TftpdService.cfgPath = `${ctx.filesDir}/tftpd32.ini`;
@@ -214,6 +217,14 @@ export class TftpdService {
 
   static md5(path: string): string {
     return tftpd.computeMd5(path) ?? '';
+  }
+
+  static leases(): DhcpLease[] {
+    try {
+      return JSON.parse(tftpd.getDhcpLeases()) as DhcpLease[];
+    } catch (_e) {
+      return [];
+    }
   }
 
   static listDir(path: string): DirEntry[] {

@@ -406,6 +406,25 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | DH-04 | P2 | 地址池耗尽 | PoolSize=1，两个客户端请求 | 第一个成功，第二个被拒/等待，行为同原版 |
 | DH-05 | P2 | 自定义选项 | AddOptionNumber=42 | ACK 携带 option 42 |
 
+#### 6.10.1 执行记录（2026-10-21，DevEco 模拟器 Pura 90 Pro，回环单播）
+
+环境：应用沙箱 `tftpd32.ini` 写入 `IP_Pool=192.168.1.100`、`PoolSize=10`、`Mask=255.255.255.0`、`Gateway=192.168.1.1`、`DNS=8.8.8.8`、`DNS2=1.1.1.1`、`BootFile=pxelinux.0`、`Option42=192.168.1.123`、`Option120=192.168.1.124`、`DhcpPort=6700`、`PersistantLeases=1`；服务经设置页开关启动（`Services` 含 `0x0004`，`/proc/net/udp` 可见 `1A2C` 绑定）。客户端为设备内 `m2tool dhcp`（`flags=0` → 服务器按单播应答，绕开模拟器不转发二层广播的限制）。
+
+| 编号 | 步骤 | 结果 | 结论 |
+|---|---|---|---|
+| DH-01 | `m2tool dhcp discover 127.0.0.1 6700 02:11:22:33:44:66` → `dhcp request ... 192.168.1.103` | OFFER 320B：`op=2`、`yiaddr=192.168.1.103`，选项 53=2、1=255.255.255.0、3=192.168.1.1、6=8.8.8.8/1.1.1.1、51=172800s、54=10.0.2.15、58/59 续租与重绑定时间；REQUEST 回 ACK（53=5），租约表状态转“已确认”。10 个 MAC 依次获得 .100~.109，无重复、无越池 | 通过 |
+| DH-02 | 全部 ACK 后 `aa force-stop` → 重启应用 | `Lease_NumLeases=10` 与 `Lease_<n>_MAC/_IP/_InitialOfferTime/_LeaseStartTime` 全在；DHCP 页租约表（10）恢复，8 条“已确认” + 2 条“已提议”（offer 未 ACK 的租约保留为已提议） | 通过 |
+| DH-03 | 配置 `BootFile=pxelinux.0` | OFFER/ACK 的 `file=pxelinux.0`；`siaddr=0.0.0.0`。与原版一致：原版 `bootpd.c` 仅在请求 `siaddr==INADDR_NONE` 时才填最近服务器地址，普通 DISCOVER（`siaddr=0`）同样返回 0；服务器地址通过 option 54/66 下发（66=10.0.2.15） | 通过（与原版行为一致） |
+| DH-04 | `PoolSize=10`，10 个 MAC 占满后再发 2 个 DISCOVER | 第 11/12 个客户端 3s 无应答（`timeout / no reply`），应用日志 `no more address or address previously allocated by another server`；随后 RELEASE 释放 .100、DECLINE 销毁 .102，释放出的地址立刻被新 DISCOVER 重新分配（yiaddr 分别 .102/.100） | 通过 |
+| DH-05 | 配置 `Option42=192.168.1.123`、`Option120=192.168.1.124` | OFFER/ACK 携带 option 42（len 4，192.168.1.123）与 option 120（len 5，子选项 0 + 4 字节地址）；未配置的 WINS 不下发 option 44（len 0） | 通过 |
+| 附加 | `dhcp release` / `dhcp decline` | RELEASE：租约保留但清空分配/续租时间，状态转“空闲”；DECLINE：校验 option 50 与租约地址一致后销毁条目，`Lease_NumLeases` 由 10 降为 9 | 通过（与原版 `ZeroAllocTime`/`DHCPDestroyItem` 逻辑一致） |
+
+说明与遗留：
+- 回环自测覆盖报文语义（选项编码、地址分配/回收、持久化），**未覆盖**二层广播/多网卡选路，后者需真机 + 同网段 PC（A3 / 本用例真机部分）。
+- 测试工具缺陷（非应用缺陷）：`m2tool dhcp decline` 最初把请求地址写进了 BOOTP `yiaddr` 字段，而 `ProcessDHCPMessage` 见到 `yiaddr!=0` 会直接丢弃报文（原版逻辑），导致 DECLINE 看似无效；改为只带 option 50 后正常。已在 `tools/m2tool.c` 注释标注。
+- 租约数减少后 `tftpd32.ini` 会残留旧的 `Lease_9_*` 键（写键不删键），加载以 `Lease_NumLeases` 为准，不影响行为，与原版私有配置文件写法的表现一致。
+
+
 ### 6.11 Telnet 控制台（M3/M4）
 
 | 编号 | 优先级 | 用例 | 步骤 | 预期 |

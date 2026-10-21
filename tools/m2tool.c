@@ -1,7 +1,10 @@
-// m2tool.c —— 设备端 M2 协议测试工具
+// m2tool.c —— 设备端 M2/M3 协议测试工具
 // 用法：m2tool syslog <ip> <port> <count> <len>
 //       m2tool dns    <ip> <port> <qname> <qtype>
 //       m2tool ntp    <ip> <port>
+//       m2tool dhcp   <discover|request|release|decline> <ip> <port> <mac> [requested-ip]
+//       例：m2tool dhcp discover 127.0.0.1 6700 02:11:22:33:44:55
+//           m2tool dhcp request  127.0.0.1 6700 02:11:22:33:44:55 192.168.1.100
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -150,9 +153,134 @@ struct pollfd pf;
     return 0;
 }
 
+/* ---------- DHCP（RFC 2131）报文级测试 ----------
+   只构造最小的 BOOTP/DHCP 报文，用于 DORA 各阶段的服务器行为验证。
+   flags=0 → 请求服务器按单播应答（回环自测 / 与原版 netsh 抓包对拍均可）。 */
+static int parse_mac (const char *s, unsigned char *mac)
+{
+    int v[6], i;
+    if (sscanf (s, "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6)
+        return -1;
+    for (i = 0; i < 6; i++)  mac[i] = (unsigned char) v[i];
+    return 0;
+}
+
+static unsigned char *put_opt (unsigned char *p, int code, int len, const void *val)
+{
+    *p++ = (unsigned char) code;
+    *p++ = (unsigned char) len;
+    if (len > 0)  { memcpy (p, val, (size_t) len);  p += len; }
+    return p;
+}
+
+static int do_dhcp (const char *action, const char *ip, int port,
+                    const char *macs, const char *reqIp)
+{
+struct sockaddr_in to;
+int s = udp_sock (ip, port, & to), n;
+unsigned char pkt [576], r [576];
+unsigned char mac [6];
+unsigned char *p;
+unsigned int yi, si, xid = 0x5A5A0000u | (unsigned int) (getpid () & 0xFFFF);
+int msgType;
+struct timeval tv = { 3, 0 };
+
+    if (parse_mac (macs, mac) != 0)  { printf ("bad mac\n");  close (s);  return 2; }
+    if (strcmp (action, "discover") == 0)       msgType = 1;
+    else if (strcmp (action, "request") == 0)   msgType = 3;
+    else if (strcmp (action, "release") == 0)   msgType = 7;
+    else if (strcmp (action, "decline") == 0)   msgType = 4;
+    else { printf ("bad dhcp action\n");  close (s);  return 2; }
+
+    memset (pkt, 0, sizeof pkt);
+    pkt[0] = 1;            /* BOOTREQUEST */
+    pkt[1] = 1;            /* HTYPE_ETHER */
+    pkt[2] = 6;            /* HLEN */
+    pkt[4] = (unsigned char) (xid >> 24);  pkt[5] = (unsigned char) (xid >> 16);
+    pkt[6] = (unsigned char) (xid >> 8);   pkt[7] = (unsigned char) xid;
+    memcpy (pkt + 28, mac, 6);                    /* chaddr */
+    p = pkt + 236;
+    *p++ = 0x63;  *p++ = 0x82;  *p++ = 0x53;  *p++ = 0x63;   /* magic cookie */
+    p = put_opt (p, 53, 1, & (unsigned char) { (unsigned char) msgType });
+    {
+        unsigned char prl [4] = { 1, 3, 6, 15 };
+        p = put_opt (p, 55, 4, prl);
+    }
+    if (reqIp != NULL && reqIp[0] != 0 && (msgType == 3 || msgType == 4))
+    {
+        unsigned int a = inet_addr (reqIp);
+        p = put_opt (p, 50, 4, & a);
+        /* 注意：DECLINE 也不能填 yiaddr —— 服务器见到 yiaddr 非 0 会直接丢弃报文 */
+    }
+    *p++ = 255;
+    n = (int) (p - pkt);
+
+    if (msgType == 7)      /* RELEASE 按 RFC 直接单播到服务器，不期待应答 */
+    {
+        sendto (s, pkt, n, 0, (struct sockaddr *) & to, sizeof to);
+        printf ("sent DHCPRELEASE for %s mac %s\n", reqIp ? reqIp : "-", macs);
+        close (s);
+        return 0;
+    }
+
+    sendto (s, pkt, n, 0, (struct sockaddr *) & to, sizeof to);
+    {
+        /* 部分 musl/鸿蒙实现上 SO_RCVTIMEO 对 UDP 不生效 → 用 poll 保证 3s 超时 */
+        struct pollfd pf;
+        pf.fd = s;  pf.events = POLLIN;  pf.revents = 0;
+        if (poll (& pf, 1, 3000) <= 0)
+        { printf ("timeout / no reply\n");  close (s);  return 1; }
+    }
+    setsockopt (s, SOL_SOCKET, SO_RCVTIMEO, & tv, sizeof tv);
+    n = (int) recv (s, r, sizeof r, 0);
+    if (n < 240)  { printf ("timeout / short reply %d\n", n);  close (s);  return 1; }
+
+    memcpy (& yi, r + 16, 4);
+    memcpy (& si, r + 20, 4);
+    {
+        /* inet_ntoa 返回静态缓冲，同一次 printf 里调用两次会被后一次覆盖 → 先各自转成字符串 */
+        char szYi [32], szSi [32];
+        snprintf (szYi, sizeof szYi, "%s", inet_ntoa (*(struct in_addr *) & yi));
+        snprintf (szSi, sizeof szSi, "%s", inet_ntoa (*(struct in_addr *) & si));
+        printf ("reply %d bytes op=%d yiaddr=%s siaddr=%s file=%s\n",
+                n, r[0], szYi, szSi, r + 108);
+    }
+    {
+        unsigned char *q = r + 240, *end = r + n;
+        while (q + 2 <= end && *q != 255 && *q != 0)
+        {
+            int code = q[0], len = q[1];
+            char txt [128] = "";
+            if (q + 2 + len > end)  break;
+            if (code == 53)  snprintf (txt, sizeof txt, "msgtype=%d", q[2]);
+            else if (code == 1 && len == 4)
+                snprintf (txt, sizeof txt, "%s", inet_ntoa (*(struct in_addr *) (q + 2)));
+            else if ((code == 3 || code == 6 || code == 42) && len >= 4)
+                snprintf (txt, sizeof txt, "%s", inet_ntoa (*(struct in_addr *) (q + 2)));
+            else if (code == 51 && len == 4)
+            {
+                unsigned int lt;  memcpy (& lt, q + 2, 4);
+                snprintf (txt, sizeof txt, "lease=%us", ntohl (lt));
+            }
+            else if (code == 54 && len == 4)
+                snprintf (txt, sizeof txt, "%s", inet_ntoa (*(struct in_addr *) (q + 2)));
+            else if (code == 15 || code == 66 || code == 12)
+                snprintf (txt, sizeof txt, "%.*s", len, (char *) q + 2);
+            printf ("  opt %3d len %d %s\n", code, len, txt);
+            q += 2 + len;
+        }
+    }
+    close (s);
+    return 0;
+}
+
 int main (int argc, char **argv)
 {
-    if (argc < 4)  { printf ("usage: m2tool syslog|dns|ntp|bad ...\n");  return 2; }
+    setvbuf (stdout, NULL, _IONBF, 0);   /* hdc shell 下 stdout 非 tty，默认全缓冲会丢失超时信息 */
+    if (argc >= 6 && strcmp (argv[1], "dhcp") == 0)
+        return do_dhcp (argv[2], argv[3], atoi (argv[4]), argv[5],
+                        argc >= 7 ? argv[6] : NULL);
+    if (argc < 4)  { printf ("usage: m2tool syslog|dns|ntp|bad|dhcp ...\n");  return 2; }
     if (strcmp (argv[1], "syslog") == 0 && argc >= 6)
         return do_syslog (argv[2], atoi (argv[3]), atoi (argv[4]), atoi (argv[5]));
     if (strcmp (argv[1], "ntp") == 0)

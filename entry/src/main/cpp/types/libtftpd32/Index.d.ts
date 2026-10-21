@@ -14,3 +14,4 @@ export const startTftpClient: (opcode: number, host: string, port: number,
 export const computeMd5: (path: string) => string | undefined;
 export const listDirectory: (path: string) => string;
 export const getSettingStr: (key: string) => string;
+export const getDhcpLeases: () => string;

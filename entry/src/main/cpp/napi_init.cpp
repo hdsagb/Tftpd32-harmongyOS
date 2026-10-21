@@ -20,6 +20,7 @@ BOOL   Pal_SetSettingInt   (const char *key, unsigned val);
 BOOL   Pal_SetSettingStr   (const char *key, const char *val);
 BOOL   Pal_GetSettingInt   (const char *key, unsigned *pVal);
 BOOL   Pal_GetSettingStr   (const char *szKey, char *szOut, int nOut);
+int    PalDhcpLeasesJson   (char *szOut, int nOut);   /* bootpd.c：租约表 JSON */
 #ifdef __cplusplus
 }
 #endif
@@ -218,6 +219,19 @@ static napi_value ListDirectory (napi_env env, napi_callback_info info)
     return r;
 }
 
+/* DHCP 租约表（UI 轮询；服务未启动时返回 []） */
+static napi_value GetDhcpLeases (napi_env env, napi_callback_info /*info*/)
+{
+    napi_value r;
+    char *json = (char *) malloc (16384);
+    if (json == nullptr)
+    { napi_create_string_utf8 (env, "[]", 2, & r);  return r; }
+    PalDhcpLeasesJson (json, 16384);
+    napi_create_string_utf8 (env, json, NAPI_AUTO_LENGTH, & r);
+    free (json);
+    return r;
+}
+
 EXTERN_C_START
 static napi_value Init (napi_env env, napi_value exports)
 {
@@ -238,6 +252,7 @@ static napi_value Init (napi_env env, napi_value exports)
         { "computeMd5",       nullptr, ComputeMd5,       nullptr, nullptr, nullptr, napi_default, nullptr },
         { "listDirectory",    nullptr, ListDirectory,    nullptr, nullptr, nullptr, napi_default, nullptr },
         { "getSettingStr",    nullptr, GetSettingStr,    nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getDhcpLeases",    nullptr, GetDhcpLeases,    nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties (env, exports, sizeof (desc) / sizeof (desc[0]), desc);
     return exports;

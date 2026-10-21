@@ -1,5 +1,5 @@
 import { TftpdService, TrfStat } from '../services/TftpdService';
-import { SyslogPage, SntpPage, DnsPage, ClientPage, DirectoryPage } from './M2Pages';
+import { SyslogPage, SntpPage, DnsPage, ClientPage, DirectoryPage, DhcpPage } from './M2Pages';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import { wantAgent } from '@kit.AbilityKit';
 
@@ -31,6 +31,7 @@ struct Index {
   @State syslogOn: boolean = false;
   @State sntpOn: boolean = false;
   @State dnsOn: boolean = false;
+  @State dhcpOn: boolean = false;
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
   private logScroller: Scroller = new Scroller();
@@ -68,6 +69,7 @@ struct Index {
         TabContent() { SyslogPage() }.tabBar('Syslog')
         TabContent() { SntpPage() }.tabBar('SNTP')
         TabContent() { DnsPage() }.tabBar('DNS')
+        TabContent() { DhcpPage() }.tabBar('DHCP')
         TabContent() { ClientPage() }.tabBar('客户端')
         TabContent() { DirectoryPage() }.tabBar('目录')
       }.layoutWeight(1).barMode(BarMode.Scrollable)
@@ -105,6 +107,15 @@ struct Index {
         Toggle({ type: ToggleType.Switch, isOn: this.dnsOn })
           .onChange((on: boolean) => { this.dnsOn = on; this.toggleSub(0x0020, on) })
         Text('端口 5300').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Blank()
+      }.width('100%')
+
+      Row() {
+        Text('DHCP 服务器').width(160)
+        Toggle({ type: ToggleType.Switch, isOn: this.dhcpOn })
+          .onChange((on: boolean) => { this.dhcpOn = on; this.toggleSub(0x0004, on) })
+        Text('端口 ' + TftpdService.getInt('DhcpPort') + '（在 DHCP 页签修改）')
+          .fontSize(12).opacity(0.6).margin({ left: 8 })
         Blank()
       }.width('100%')
 
@@ -216,6 +227,7 @@ struct Index {
     this.syslogOn = (mask & 0x0008) !== 0;
     this.sntpOn = (mask & 0x0010) !== 0;
     this.dnsOn = (mask & 0x0020) !== 0;
+    this.dhcpOn = (mask & 0x0004) !== 0;
   }
 
   private serviceMask(): number {
@@ -223,6 +235,7 @@ struct Index {
     if (this.syslogOn) m |= 0x0008;
     if (this.sntpOn) m |= 0x0010;
     if (this.dnsOn) m |= 0x0020;
+    if (this.dhcpOn) m |= 0x0004;
     return m;
   }
 
