@@ -91,7 +91,7 @@ typedef struct
 {
 	int               nb_ipv6_address;
 	char              cname [NI_MAXHOST];
-	long              ipv4;
+	unsigned int      ipv4;    /* 网络序 4 字节地址：LP64 下不能用 long（8 字节） */
 	IN6_ADDR          ipv6 [MAX_IPV6_ADDRESS];
 	unsigned short    qtype;
 	unsigned short    qclass;
@@ -262,7 +262,7 @@ int n = 0;
 	memset (ans, 0, sizeof *ans);
 	ans->ipv4 = INADDR_NONE;
 
-	if (PalDnsHostsLookup (req->name, (long *) & ans->ipv4, ans->ipv6,
+	if (PalDnsHostsLookup (req->name, & ans->ipv4, ans->ipv6,
 	                       & ans->nb_ipv6_address, ans->cname))
 	{
 		ans->qclass = req->qclass;
@@ -312,7 +312,7 @@ char cname [NI_MAXHOST];
 int Rc;
 
 	/* 先查本地 hosts.txt（鸿蒙构建未定义 IPv6，走本分支） */
-	if (PalDnsHostsLookup (req->name, (long *) & ans->ipv4, v6, & nb6, cname))
+	if (PalDnsHostsLookup (req->name, & ans->ipv4, v6, & nb6, cname))
 	{
 		int Ark;
 		ans->qclass = req->qclass;

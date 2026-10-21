@@ -40,13 +40,14 @@ extern "C" {
 /* ---------- 基本类型 ---------- */
 typedef int BOOL; typedef unsigned char BYTE; typedef unsigned short WORD;
 typedef unsigned int DWORD; typedef unsigned int UINT; typedef int INT;
-typedef long LONG; typedef void *LPVOID; typedef const char *LPCSTR; typedef char *LPSTR;
+/* Win32 的 LONG/u_long 均为 32 位；LP64 下若沿用 long 会使 LARGE_INTEGER 布局错误 */
+typedef int LONG; typedef void *LPVOID; typedef const char *LPCSTR; typedef char *LPSTR;
 typedef const void *LPCVOID;
 typedef void *HWND;          /* GUI 句柄：仅结构体占位（tftp_struct.h），永不解引用 */
 typedef void *HINSTANCE;     /* GUI 句柄：仅声明占位（custom.h GuiMain），永不解引用 */
 typedef long long __int64;
 typedef int SOCKET;
-typedef unsigned long u_long;
+/* u_long 由 musl 的 sys/types.h 提供，此处不再重复定义（项目未使用该类型） */
 #define TRUE 1
 #define FALSE 0
 #define WINAPI
@@ -219,7 +220,7 @@ int  PalClientStart (int opcode, const char *szHost, int nPort,
                      const char *szRemote, const char *szLocal, int nBlkSize);
 BOOL PalComputeMd5 (const char *szPath, char *szOut, int nOut);
 int  PalListDirectory (const char *szPath, char *szJson, int nJson);
-BOOL PalDnsHostsLookup (const char *szName, long *plIpv4, IN6_ADDR *pIpv6,
+BOOL PalDnsHostsLookup (const char *szName, unsigned int *plIpv4, IN6_ADDR *pIpv6,
                         int *pnNbV6, char *szCname);
 
 #ifdef __cplusplus

@@ -80,7 +80,8 @@ static struct sSntpPkt sSntpDefaultData =
 ///////////////////////////////////////////////////////
 struct sSntpPkt *SntpFillMessage (struct sSntpPkt *pSntpData)
 {
-#define SECONDS_BETWEEN_1970_AND_1900 ((unsigned long) (365*70 + 17) * 3600 * 24)
+/* NTP 时间戳为 32 位无符号秒数：LP64 下 unsigned long 为 8 字节，须显式取 32 位 */
+#define SECONDS_BETWEEN_1970_AND_1900 ((u_int32_t) (365*70 + 17) * 3600 * 24)
 #define MILLISECONDS_TO_NTP_TIMESTAMP 0x00418937   // = int (2^32 / 1000)
 struct sSntpPkt OldPkt = *pSntpData;
 SYSTEMTIME               sSystemTime;
@@ -101,7 +102,7 @@ int                      Ark;
     pSntpData->org_frac    = OldPkt.xmt_frac;       // origin
     pSntpData->reftime_sec = 
     pSntpData->rec_sec     = 
-    pSntpData->xmt_sec     = htonl ( (unsigned long) time(NULL) + SECONDS_BETWEEN_1970_AND_1900 );  
+    pSntpData->xmt_sec     = htonl ( (u_int32_t) time(NULL) + SECONDS_BETWEEN_1970_AND_1900 );  
     pSntpData->rec_frac     = 
     pSntpData->reftime_frac= 
     tLastId [nLoopDetector++ % SizeOfTab(tLastId)]  = 

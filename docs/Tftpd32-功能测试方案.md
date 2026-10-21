@@ -488,6 +488,40 @@ UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
 | NF-05 | P1 | 后台存活 | （真机 M4）退后台 8h 后服务仍可达 |
 | NF-06 | P2 | 吞吐 | 模拟器内 10MB 下载耗时不劣于原版在本机的 5 倍 |
 
+#### 6.14.1 LP64 审计执行记录（2026-10-21）
+
+审计范围：`entry/src/main/cpp` 全部产品代码（PAL、tftpd 服务、客户端、工具层），模式包括
+`sizeof(long)`、`%ld/%lu/%lx`、`%I64d`、`long` 用作定宽、`unsigned long` 参与协议/时间运算、`LARGE_INTEGER` 布局、`time_t`/`size_t` 格式化。
+
+| 项 | 位置 | 问题 | 处理 | 结论 |
+|---|---|---|---|---|
+| A6-01 | [pal_compat.h](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/pal_compat.h#L43-L44) | `typedef long LONG`：Win32 为 32 位，LP64 下 8 字节，使 `LARGE_INTEGER` 变成 16 字节、`HighPart` 覆盖 QuadPart 高半部 | 改为 `typedef int LONG` | 已修（编译通过，读写回归正常） |
+| A6-02 | [pal_compat.h](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/pal_compat.h#L50) | 自定义 `typedef unsigned long u_long` 与 musl `sys/types.h` 冲突（重定义错误） | 删除自定义 typedef，改用系统定义（项目未使用） | 已修 |
+| A6-03 | [dns.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/dns.c#L94) / [dns_hosts.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/dns_hosts.c#L9) | `DNS_ANSWER_EXP.ipv4` 与 `PalDnsHostsLookup` 用 `long` 承载 4 字节网络序地址，依赖小端低 4 字节，可移植性差 | 改为 `unsigned int`，删除 dns_hosts 中的 `long tmp` 位移拷贝 | 已修（DN-01/03 复测一致） |
+| A6-04 | [sntpd.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/sntpd.c#L83-L105) | NTP 时间戳常量与 `time(NULL)` 用 `unsigned long`，LP64 下 8 字节，依赖 `htonl` 隐式截断 | 显式 `(u_int32_t)` | 已修（xmt 与 unix 时间差仍为 2208988800） |
+| A6-05 | [tftpd_thread.c](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/tftpd_thread.c#L762-L768) | 依赖 `LARGE_INTEGER.LowPart/HighPart`，A6-01 修复前 `HighPart=0` 会连带清零 QuadPart 的 32..63 位 | 随 A6-01 修正布局；代码本身只使用低 32 位，与原版注释一致 | 无行为变化 |
+| A6-06 | [global.h](file:///d:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/entry/src/main/cpp/tftpd/libs/md5/global.h#L20-L24) | `UINT4` 原为 `unsigned long`，破坏 MD5 模 2^32 运算（M2 的 BUG-007） | 改为 `uint32_t` | 已修并在本轮复测 |
+| A6-07 | `bootpd_util.h:111` | `unsigned long AddrInc` 在 LP64 下为 8 字节（当前未参与编译） | 留待 M3 DHCP 移植时改为 `unsigned int` | 待办（B1） |
+| A6-08 | 全局 | 未发现 `%ld/%lu`、`%I64d`、`sizeof(long)` 的活跃使用；64 位量已统一 `%lld` + `long long` | — | 通过 |
+
+复测（模拟器 x86_64，同为 LP64）：
+`DN-01 reply 40 bytes type=1 rdata=192.168.1.100`、`DN-03 reply 53 bytes type=28 rdata=::1`、
+`ST reply 48 bytes xmt=4001567403 (unix 1792578603)`、TFTP GET/PUT 37 字节往返 MD5 `ecb492e4…` 一致、
+目录页 MD5 `hosts.txt: ecb492e43bb51bd9c2b6f0360bd83a60` 与 PC 一致。
+
+#### 6.14.2 真机基线回归（阶段 A）执行状态
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| A1 构建→签名→安装 | 已完成 | `hvigorw assembleHap` → `hap-sign-tool sign-app`（OpenHarmony.p12 + debug-profile）→ `hdc install -r`；模拟器验证通过 |
+| A2 同网段组网 | 未执行 | 当前 `hdc list targets` 仅 `127.0.0.1:5555`（模拟器）与 COM 串口，无可用真机 |
+| A3 与原版 v4.74 报文对拍（TC-01/02、SL、ST、DN、MD-02） | 阻塞 | 需真机 + 同网段 PC；模拟器仅转发 TCP，UDP 不可达 |
+| A4 后台 8h 存活（NF-05） | 阻塞 | 需真机 |
+| A5 吞吐（NF-06） | 阻塞 | 需真机；模拟器仅可作为趋势参考 |
+
+真机到位后的执行顺序：`hdc tconn <IP>:5555`（或 USB 调试）→ 安装签名 HAP → 启动并开启四服务 →
+PC 侧 `tftpd32.exe` 与 `m2tool`/`cf` 工具对拍 → 退后台 8h 探测 → 10MB GET/PUT ×5 记录吞吐。
+
 ---
 
 ## 7. 通过标准
