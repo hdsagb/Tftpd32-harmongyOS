@@ -19,6 +19,7 @@ BOOL   Tftpd32SaveSettings (void);
 BOOL   Pal_SetSettingInt   (const char *key, unsigned val);
 BOOL   Pal_SetSettingStr   (const char *key, const char *val);
 BOOL   Pal_GetSettingInt   (const char *key, unsigned *pVal);
+BOOL   Pal_GetSettingStr   (const char *szKey, char *szOut, int nOut);
 #ifdef __cplusplus
 }
 #endif
@@ -141,6 +142,82 @@ static napi_value GetSettingInt (napi_env env, napi_callback_info info)
     return r;
 }
 
+static napi_value GetSettingStr (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  char key[128];  size_t n = 0;
+    char val[_MAX_PATH] = "";
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_string_utf8 (env, argv[0], key, sizeof key, & n);
+    Pal_GetSettingStr (key, val, sizeof val);
+    napi_value r;
+    napi_create_string_utf8 (env, val, NAPI_AUTO_LENGTH, & r);
+    return r;
+}
+
+static napi_value StartServiceMask (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  double dMask = 0;  napi_value r;
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_double (env, argv[0], & dMask);
+    napi_get_boolean (env, PalServiceStartMask ((unsigned) dMask) > 0 ? true : false, & r);
+    return r;
+}
+
+static napi_value StopServiceMask (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  double dMask = 0;
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_double (env, argv[0], & dMask);
+    PalServiceStopMask ((unsigned) dMask);
+    return nullptr;
+}
+
+static napi_value StartTftpClient (napi_env env, napi_callback_info info)
+{
+    size_t argc = 6;  napi_value argv[6];  napi_value r;
+    char host[256] = "", remote[256] = "", local[1024] = "";
+    double dOpcode = 1, dPort = 69, dBlk = 0;  size_t n = 0;
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    if (argc < 5)  { napi_get_boolean (env, false, & r);  return r; }
+    napi_get_value_double (env, argv[0], & dOpcode);
+    napi_get_value_string_utf8 (env, argv[1], host, sizeof host, & n);
+    napi_get_value_double (env, argv[2], & dPort);
+    napi_get_value_string_utf8 (env, argv[3], remote, sizeof remote, & n);
+    napi_get_value_string_utf8 (env, argv[4], local, sizeof local, & n);
+    if (argc > 5)  napi_get_value_double (env, argv[5], & dBlk);
+    napi_get_boolean (env, PalClientStart ((int) dOpcode, host, (int) dPort,
+                                           remote, local, (int) dBlk) ? true : false, & r);
+    return r;
+}
+
+static napi_value ComputeMd5 (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  napi_value r;
+    char path[1024] = "", out[40] = "";  size_t n = 0;
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_string_utf8 (env, argv[0], path, sizeof path, & n);
+    if (PalComputeMd5 (path, out, sizeof out))
+        napi_create_string_utf8 (env, out, NAPI_AUTO_LENGTH, & r);
+    else
+        napi_get_undefined (env, & r);
+    return r;
+}
+
+static napi_value ListDirectory (napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;  napi_value argv[1];  napi_value r;
+    char path[1024] = "";  size_t n = 0;
+    char *json = (char *) malloc (32768);
+    napi_get_cb_info (env, info, & argc, argv, nullptr, nullptr);
+    napi_get_value_string_utf8 (env, argv[0], path, sizeof path, & n);
+    if (json == nullptr)
+    { napi_create_string_utf8 (env, "[]", 2, & r);  return r; }
+    PalListDirectory (path, json, 32768);
+    napi_create_string_utf8 (env, json, NAPI_AUTO_LENGTH, & r);
+    free (json);
+    return r;
+}
+
 EXTERN_C_START
 static napi_value Init (napi_env env, napi_value exports)
 {
@@ -155,6 +232,12 @@ static napi_value Init (napi_env env, napi_value exports)
         { "saveSettings",     nullptr, SaveSettings,  nullptr, nullptr, nullptr, napi_default, nullptr },
         { "readSettings",     nullptr, ReadSettings,  nullptr, nullptr, nullptr, napi_default, nullptr },
         { "getSettingInt",    nullptr, GetSettingInt, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "startServiceMask", nullptr, StartServiceMask, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "stopServiceMask",  nullptr, StopServiceMask,  nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "startTftpClient",  nullptr, StartTftpClient,  nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "computeMd5",       nullptr, ComputeMd5,       nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "listDirectory",    nullptr, ListDirectory,    nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getSettingStr",    nullptr, GetSettingStr,    nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties (env, exports, sizeof (desc) / sizeof (desc[0]), desc);
     return exports;
