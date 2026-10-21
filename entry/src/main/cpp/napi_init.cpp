@@ -155,6 +155,16 @@ static napi_value GetSettingStr (napi_env env, napi_callback_info info)
     return r;
 }
 
+/* 本机 IPv4 列表（LocalIP 下拉）：返回 "ip,ip,..." */
+static napi_value GetLocalIPv4s (napi_env env, napi_callback_info /*info*/)
+{
+    char buf[256] = "";
+    napi_value r;
+    Pal_ListIPv4Addresses (buf, sizeof buf);
+    napi_create_string_utf8 (env, buf, NAPI_AUTO_LENGTH, & r);
+    return r;
+}
+
 static napi_value StartServiceMask (napi_env env, napi_callback_info info)
 {
     size_t argc = 1;  napi_value argv[1];  double dMask = 0;  napi_value r;
@@ -253,6 +263,7 @@ static napi_value Init (napi_env env, napi_value exports)
         { "listDirectory",    nullptr, ListDirectory,    nullptr, nullptr, nullptr, napi_default, nullptr },
         { "getSettingStr",    nullptr, GetSettingStr,    nullptr, nullptr, nullptr, napi_default, nullptr },
         { "getDhcpLeases",    nullptr, GetDhcpLeases,    nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getLocalIPv4s",    nullptr, GetLocalIPv4s,    nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties (env, exports, sizeof (desc) / sizeof (desc[0]), desc);
     return exports;

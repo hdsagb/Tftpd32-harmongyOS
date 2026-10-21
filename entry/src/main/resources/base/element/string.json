@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "Tftpd32 for HarmonyOS"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "Tftpd32 服务器"
     },
     {
       "name": "EntryAbility_label",
-      "value": "label"
+      "value": "Tftpd32"
     }
   ]
 }

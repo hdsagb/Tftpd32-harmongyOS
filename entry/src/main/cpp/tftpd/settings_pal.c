@@ -109,6 +109,8 @@ static const struct PalKey tKeys [] =
     { KEY_GUI_REMANENCE,        & sSettings.nGuiRemanence,          PAL_T_INT, 0 },
     { KEY_IPv6,                 & sSettings.bIPv6,                  PAL_T_INT, 0 },
     { KEY_PORT_OPTION,          & sSettings.bPortOption,            PAL_T_INT, 0 },
+    { KEY_MCAST_ADDR,             sSettings.szMCastAddr,           PAL_T_STR, sizeof sSettings.szMCastAddr },
+    { KEY_MCAST_PORT,           & sSettings.dwMCastPort,            PAL_T_INT, 0 },
 
     /* —— DHCP（键名与原版注册表一致；与 DHCPReadConfig 的表同源，重复装载无害）—— */
     { KEY_DHCP_POOL,             sParamDHCP.szAddr,         PAL_T_STR, sizeof sParamDHCP.szAddr },

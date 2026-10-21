@@ -57,6 +57,7 @@ struct S_Trf_Statistics
 struct S_Trf_Control
 {
     BOOL            bMCast;            // current transfer is multicast
+    SOCKET          sktReady;          // 本次 select 判定可读的 socket（组播时用于区分）
     DWORD           nCount;            // current packet #
     DWORD           nLastBlockOfFile;  // Last block of file
     // DWORD          dwLastAckPacket; // Sorcerer's Apprentice Syndrome
@@ -70,6 +71,7 @@ struct S_Trf_Control
 struct S_Trf_Resource
 {
     SOCKET          skt;                // socket de la connexion
+    SOCKET          sktMcast;           // 组播发送 socket（RFC 2090，单播时为 INVALID_SOCKET）
     HANDLE          hFile;              // file handler
     // HWND            hGaugeWnd;          // Handler of Gauge Window
 } ;         // struct S_Trf_Resource

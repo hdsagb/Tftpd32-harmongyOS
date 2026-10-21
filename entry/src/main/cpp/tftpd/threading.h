@@ -94,5 +94,6 @@ void ConsoleTftpGetStatistics (void);
 // Actions called by Scheduler
 int PoolNetworkInterfaces (void);
 int GetIPv4Address (const char *szIf, char *szIP);
+int Pal_ListIPv4Addresses (char *szOut, int nOut);
 
 #endif /* THREADING_H_PAL */

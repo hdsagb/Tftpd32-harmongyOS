@@ -229,6 +229,7 @@ int  AsyncSaveKey (const char *szRegPath, const char *szKey, const void *buf, in
 
 /* ---------- 网卡信息（ip_pal.c） ---------- */
 BOOL PalGetPrimaryIPv4 (struct in_addr *pAddr);   /* 第一个非回环 IPv4；无则返回 FALSE */
+int  Pal_ListIPv4Addresses (char *szOut, int nOut); /* "ip,ip,..."，返回个数 */
 
 /* ---------- DHCP 服务（bootpd.c） ---------- */
 int  PalDhcpLeasesJson (char *szOut, int nOut);   /* 租约表 → JSON（UI 轮询） */

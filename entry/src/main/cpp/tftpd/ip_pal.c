@@ -85,6 +85,32 @@ int  nRc = -1;
 return nRc;
 }
 
+/* 枚举本机 IPv4（非回环），输出 "ip,ip,..."；返回个数。LocalIP 下拉用 */
+int Pal_ListIPv4Addresses (char *szOut, int nOut)
+{
+struct ifaddrs *pList = NULL, *pIt;
+int  n = 0, len = 0;
+
+    if (szOut == NULL || nOut < 2)  return 0;
+    szOut [0] = 0;
+    if (getifaddrs (& pList) != 0)  return 0;
+    for (pIt = pList ; pIt != NULL ; pIt = pIt->ifa_next)
+    {
+        const char *szIP;
+        if (pIt->ifa_addr == NULL || pIt->ifa_addr->sa_family != AF_INET)  continue;
+        if ((pIt->ifa_flags & IFF_LOOPBACK) != 0)  continue;
+        szIP = inet_ntoa (((struct sockaddr_in *) pIt->ifa_addr)->sin_addr);
+        if (szIP == NULL || szIP [0] == 0 || strcmp (szIP, "0.0.0.0") == 0)  continue;
+        if (len + (int) strlen (szIP) + 2 >= nOut)  break;
+        if (len > 0)  szOut [len++] = ',';
+        strcpy (szOut + len, szIP);
+        len += (int) strlen (szIP);
+        n++;
+    }
+    freeifaddrs (pList);
+return n;
+}
+
 unsigned int AddrInc (struct in_addr in)
 {
    unsigned int addr = ntohl (in.s_addr);

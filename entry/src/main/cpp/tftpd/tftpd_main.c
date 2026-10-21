@@ -186,8 +186,10 @@ static DWORD TransferId=467;    // unique identifiant
     pTftp->s.dwTimeout = sSettings.Timeout;
     pTftp->s.dwPacketSize = TFTP_SEGSIZE;  // default
     pTftp->r.skt = INVALID_SOCKET;
+    pTftp->r.sktMcast = INVALID_SOCKET;
     pTftp->r.hFile = INVALID_HANDLE_VALUE;
     pTftp->c.bMCast = FALSE;    // may be updated later
+    pTftp->c.sktReady = INVALID_SOCKET;
 	pTftp->c.nOAckPort = 0;		// use classical port for OAck
     pTftp->tm.dwTransferId = TransferId++;
 

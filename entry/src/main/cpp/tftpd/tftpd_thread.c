@@ -111,6 +111,103 @@ struct errmsg {
  * standard TFTP codes, or a UNIX errno
  * offset by 100.
  */
+
+/////////////////////////////////////////////////////////
+// TFTP 组播（RFC 2090）
+// 仅在设置页配置了 MulticastAddress（224.0.0.0/4）与 MulticastPort 时启用。
+// 客户端在 RRQ 中加入 multicast 选项 → OACK 返回 <地址>,<端口>；
+// 随后 DATA 块改由独立的组播 socket 发送，ACK 仍回到该 socket 的单播端口。
+/////////////////////////////////////////////////////////
+static BOOL TftpMcastAddress (struct sockaddr_in *pSa)
+{
+    memset (pSa, 0, sizeof *pSa);
+    if (sSettings.szMCastAddr[0] == 0
+        || sSettings.dwMCastPort < 1 || sSettings.dwMCastPort > 65535)
+        return FALSE;
+    pSa->sin_family = AF_INET;
+    pSa->sin_port   = htons ((unsigned short) sSettings.dwMCastPort);
+    if (inet_pton (AF_INET, sSettings.szMCastAddr, & pSa->sin_addr) != 1)
+        return FALSE;
+    // 只接受 224.0.0.0/4 组播地址
+    return (ntohl (pSa->sin_addr.s_addr) & 0xF0000000u) == 0xE0000000u;
+} // TftpMcastAddress
+
+static int TftpSendTrfPacket (struct LL_TftpInfo *pTftp, const char *pBuf, int nLen)
+{
+struct sockaddr_in sa;
+    if (pTftp->c.bMCast && pTftp->r.sktMcast != INVALID_SOCKET && TftpMcastAddress (& sa))
+        return (int) sendto (pTftp->r.sktMcast, pBuf, nLen, 0, (struct sockaddr *) & sa, sizeof sa);
+    return (int) send (pTftp->r.skt, pBuf, nLen, 0);
+} // TftpSendTrfPacket
+
+// 组播传输的 ACK 可能回到 OACK 的单播端口，也可能回到 DATA 的组播源端口，两者都尝试。
+// 组播 socket 已加入组且开启回环，会把本机发出的 DATA 收回来，这里过滤掉（仅接受 ACK/ERROR）。
+static int TftpRecvTrfPacket (struct LL_TftpInfo *pTftp, char *pBuf, int nBuf)
+{
+int n;
+    if (pTftp->c.bMCast && pTftp->r.sktMcast != INVALID_SOCKET
+        &&  pTftp->c.sktReady == pTftp->r.sktMcast)
+    {
+        for (;;)
+        {
+            n = (int) recv (pTftp->r.sktMcast, pBuf, nBuf, MSG_DONTWAIT);
+            if (n < 4)  break;
+            if (ntohs (((struct tftphdr *) pBuf)->th_opcode) != TFTP_DATA)
+                return n;                       // ACK / ERROR 交给上层
+            // 本机回环收到的自身 DATA：丢弃后继续取
+        }
+    }
+    n = (int) recv (pTftp->r.skt, pBuf, nBuf, MSG_DONTWAIT);
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return 0;                              // 只有回环包，未收到有效应答
+    return n;
+} // TftpRecvTrfPacket
+
+// 建立组播发送 socket（保留原单播 socket 用于接收 ACK）
+static BOOL TftpMcastSetup (struct LL_TftpInfo *pTftp)
+{
+struct sockaddr_in sa, saLocal;
+struct ip_mreq mreq;
+SOCKET skt;
+int True = 1;
+unsigned char TTL = 1, Loop = 1;
+
+    if (! TftpMcastAddress (& sa))  return FALSE;
+    skt = socket (AF_INET, SOCK_DGRAM, 0);
+    if (skt == INVALID_SOCKET)  return FALSE;
+
+    setsockopt (skt, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True);
+    memset (& saLocal, 0, sizeof saLocal);
+    saLocal.sin_family      = AF_INET;
+    saLocal.sin_addr.s_addr = htonl (INADDR_ANY);
+    saLocal.sin_port        = sa.sin_port;
+    if (bind (skt, (struct sockaddr *) & saLocal, sizeof saLocal) != 0)
+    {   // 组播端口被占用时退回任意端口：客户端按 DATA 源端口回 ACK
+        LOG (1, "multicast : bind port %u fails (%d), using ephemeral port",
+             (unsigned) sSettings.dwMCastPort, errno);
+        saLocal.sin_port = 0;
+        if (bind (skt, (struct sockaddr *) & saLocal, sizeof saLocal) != 0)
+        {   closesocket (skt);
+            return FALSE;
+        }
+    }
+    setsockopt (skt, IPPROTO_IP, IP_MULTICAST_TTL,  (char *) & TTL,  sizeof TTL);
+    // 允许同机回环，便于单设备自测；服务器仍会收到自己发出的 DATA，ACK 读取时忽略
+    setsockopt (skt, IPPROTO_IP, IP_MULTICAST_LOOP, (char *) & Loop, sizeof Loop);
+
+    memset (& mreq, 0, sizeof mreq);
+    mreq.imr_multiaddr = sa.sin_addr;
+    mreq.imr_interface.s_addr = htonl (INADDR_ANY);
+    if (setsockopt (skt, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) & mreq, sizeof mreq) != 0)
+        LOG (0, "multicast : IP_ADD_MEMBERSHIP %s fails (%d)",
+             sSettings.szMCastAddr, errno);
+
+    pTftp->r.sktMcast = skt;
+    LOG (2, "multicast transfer to %s:%u", sSettings.szMCastAddr,
+         (unsigned) sSettings.dwMCastPort);
+return TRUE;
+} // TftpMcastSetup
+
 int nak (struct LL_TftpInfo *pTftp, int error)
 {
 struct tftphdr *tp;
@@ -137,7 +234,7 @@ struct errmsg *pe;
 #if (defined DEBUG || defined DEB_TEST)
         BinDump (pTftp->b.buf, length, "NAK:");
 #endif
-    return send(pTftp->r.skt, pTftp->b.buf, length, 0) != length ? -1 : 0;
+    return TftpSendTrfPacket (pTftp, pTftp->b.buf, length) != length ? -1 : 0;
 } // nak
 
 
@@ -298,9 +395,16 @@ static int TftpSelect (struct LL_TftpInfo *pTftp)
 int          Rc;
 fd_set          readfds;
 struct timeval sTimeout;
+int          nMax;
 
        FD_ZERO (& readfds);
        FD_SET (pTftp->r.skt, &readfds);
+       nMax = pTftp->r.skt;
+       // 组播传输：ACK 也可能回到组播发送 socket
+       if (pTftp->r.sktMcast != INVALID_SOCKET)
+       {   FD_SET (pTftp->r.sktMcast, & readfds);
+           if (pTftp->r.sktMcast > nMax)  nMax = pTftp->r.sktMcast;
+       }
 
        sTimeout.tv_usec = 0 ;
        switch (pTftp->c.nTimeOut)
@@ -313,8 +417,10 @@ struct timeval sTimeout;
        }
        // HarmonyOS/POSIX 适配：WinSock 忽略 select() 的 nfds 参数，POSIX 必须传 maxfd+1。
        // 原版写死 1，在 POSIX 上仅检查 fd 0，导致 fd>0 的传输 socket 永不判定可读（收不到 DATA/ACK）。
-       Rc = select(pTftp->r.skt + 1, &readfds, NULL, NULL, &sTimeout) ;
+       Rc = select(nMax + 1, &readfds, NULL, NULL, &sTimeout) ;
        if (Rc == SOCKET_ERROR) return TftpSysError (pTftp, EUNDEF, "select");
+       if (Rc > 0)
+           pTftp->c.sktReady = FD_ISSET (pTftp->r.sktMcast, & readfds) ? pTftp->r.sktMcast : pTftp->r.skt;
 return Rc; // TRUE if something is ready
 } // TftpSelect
 
@@ -553,6 +659,23 @@ LARGE_INTEGER large_filesize;
             bOptionsAccepted = TRUE;
         }  // file size options
 
+        // RFC 2090 : 客户端请求组播下载 -> OACK 中返回 <组播地址>,<端口>
+        if (opcode==TFTP_RRQ && IS_OPT (p, TFTP_OPT_MCAST))
+        {struct sockaddr_in saMcast;
+            if (TftpMcastAddress (& saMcast))
+            {
+                lstrcpy (pAck, p), pAck += lstrlen (p)+1;
+                wsprintf (pAck, "%s,%u", sSettings.szMCastAddr, (unsigned) sSettings.dwMCastPort);
+                pAck += lstrlen (pAck)+1;
+                pTftp->c.bMCast = TRUE;
+                bOptionsAccepted = TRUE;
+                LOG (1, "multicast option accepted : %s,%u", sSettings.szMCastAddr,
+                     (unsigned) sSettings.dwMCastPort);
+            }
+            else
+                LOG (1, "multicast option refused : MulticastAddress/MulticastPort not configured");
+        } // multicast option
+
 		// experimental port option
 		if (sSettings.bPortOption  &&  IS_OPT (p, TFTP_OPT_PORT))
 		{SOCKADDR_STORAGE   sa;
@@ -732,6 +855,13 @@ LARGE_INTEGER liNul = { 0 };
 
     if (pTftp->m.bInit)  MD5Init (& pTftp->m.ctx);
 
+    // RFC 2090：OACK 已按单播发出，后续 DATA 改走组播 socket（ACK 从同一 socket 收回）
+    if (pTftp->c.bMCast  &&  ! TftpMcastSetup (pTftp))
+    {
+        LOG (0, "multicast setup failed, aborting transfer");
+        return FALSE;
+    }
+
     // loop on send/recv for current packet until
     //       dwRetries set to 0 (correct ack received)
     //        dwRetries > MAXRETRIES  (incorrect dialog)
@@ -783,7 +913,7 @@ LARGE_INTEGER liNul = { 0 };
         { LOG (1, "dropping 4th packet"), Rc=pTftp->c.dwBytes + TFTP_DATA_HEADERSIZE; }
     else
 #endif
-              Rc = send (pTftp->r.skt, pTftp->b.buf, pTftp->c.dwBytes + TFTP_DATA_HEADERSIZE, 0);
+              Rc = TftpSendTrfPacket (pTftp, pTftp->b.buf, pTftp->c.dwBytes + TFTP_DATA_HEADERSIZE);
 
               if (Rc<0 || (unsigned) Rc != pTftp->c.dwBytes + TFTP_DATA_HEADERSIZE )
                     return TftpSysError (pTftp, EUNDEF, "send");
@@ -796,8 +926,9 @@ LARGE_INTEGER liNul = { 0 };
         if (TftpSelect (pTftp))       // something has been received
         {
              // retrieve the message (will not block since select has returned)
-             Rc = recv (pTftp->r.skt, pTftp->b.ackbuf, sizeof pTftp->b.ackbuf, 0);
-             if (Rc<=0)     return TftpSysError (pTftp, EUNDEF, "recv");
+             Rc = TftpRecvTrfPacket (pTftp, pTftp->b.ackbuf, sizeof pTftp->b.ackbuf);
+             if (Rc<0)     return TftpSysError (pTftp, EUNDEF, "recv");
+             if (Rc==0)    continue;    // 组播回环包已丢弃，等下一轮（重传/超时由下方循环继续处理）
 
              tp = (struct tftphdr *) pTftp->b.ackbuf;
 
@@ -1129,6 +1260,8 @@ LogToMonitor ("return from thread\n");
 
        if ( pTftp->r.skt!=INVALID_SOCKET && 0==closesocket (pTftp->r.skt)==0 )
                     pTftp->r.skt=INVALID_SOCKET ;
+       if ( pTftp->r.sktMcast!=INVALID_SOCKET && 0==closesocket (pTftp->r.sktMcast)==0 )
+                    pTftp->r.sktMcast=INVALID_SOCKET ;
        if ( pTftp->r.hFile!=INVALID_HANDLE_VALUE   &&   CloseHandle(pTftp->r.hFile) )
                   pTftp->r.hFile=INVALID_HANDLE_VALUE ;
 

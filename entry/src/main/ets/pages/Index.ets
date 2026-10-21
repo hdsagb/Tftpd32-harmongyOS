@@ -1,7 +1,9 @@
 import { TftpdService, TrfStat } from '../services/TftpdService';
 import { SyslogPage, SntpPage, DnsPage, ClientPage, DirectoryPage, DhcpPage } from './M2Pages';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
-import { wantAgent } from '@kit.AbilityKit';
+import { wantAgent, common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { notificationManager } from '@kit.NotificationKit';
 
 // 设置键名与原版 Tftpd32 注册表键完全一致（兼容性强原则）
 const KEY_PORT = 'TftpPort';
@@ -11,6 +13,9 @@ const KEY_TIMEOUT = 'Timeout';
 const KEY_RETRANSMIT = 'MaxRetransmit';
 const KEY_NEGOCIATE = 'Negociate';
 const KEY_WINSIZE = 'WinSize';
+const KEY_LOCALIP = 'LocalIP';
+const KEY_MCAST_ADDR = 'MulticastAddress';
+const KEY_MCAST_PORT = 'MulticastPort';
 const KEY_SYSLOG_FILE = 'SaveSyslogFile';
 const KEY_SERVICES = 'Services';
 const BUNDLE_NAME = 'com.example.myapplication';
@@ -26,6 +31,11 @@ struct Index {
   @State retransmit: string = '6';
   @State negociate: boolean = true;
   @State winSize: string = '1';
+  @State localIp: string = '';
+  @State localIpIndex: number = 0;
+  private localIpOpts: SelectOption[] = [{ value: '全部接口' }];
+  @State mcastAddr: string = '';
+  @State mcastPort: string = '';
   @State syslogFile: string = '';
   @State running: boolean = false;
   @State syslogOn: boolean = false;
@@ -34,6 +44,8 @@ struct Index {
   @State dhcpOn: boolean = false;
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
+  private ctRunning: boolean = false;   // 长时任务是否申请成功
+  private static readonly NOTIFY_ID = 1001;
   private logScroller: Scroller = new Scroller();
   private pruneTimer: number = -1;
   private securityOpts: SelectOption[] = [
@@ -78,6 +90,7 @@ struct Index {
 
   @Builder
   SettingsPage() {
+    Scroll() {
     Column({ space: 8 }) {
       Row() {
         Text('服务').width(80)
@@ -127,6 +140,25 @@ struct Index {
       }.width('100%')
 
       Row() {
+        Text('绑定网卡（LocalIP）').width(160)
+        Select(this.localIpOpts)
+          .selected(this.localIpIndex).value(this.localIp || '全部接口')
+          .onSelect((i: number) => {
+            this.localIpIndex = i;
+            const v = `${this.localIpOpts[i].value}`;
+            this.localIp = i === 0 ? '' : v;
+          })
+        Blank()
+      }.width('100%')
+
+      Text('留空表示监听全部接口；选择具体地址后仅在该网卡上响应（原版 LocalIP 语义）')
+        .fontSize(12).opacity(0.6)
+
+      Text('后台运行：服务运行期间申请长时任务（taskKeeping）以保持端口监听；' +
+        '若系统提示耗电，请在“设置 > 电池 > 应用耗电管理”中将本应用设为允许后台活动')
+        .fontSize(12).opacity(0.6)
+
+      Row() {
         Text('根目录').width(80)
         Text(this.baseDir).fontSize(12).layoutWeight(1)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -162,6 +194,21 @@ struct Index {
       }.width('100%')
 
       Row() {
+        Text('组播地址（RFC2090）').width(180)
+        TextInput({ text: this.mcastAddr, placeholder: '如 239.255.0.1' }).layoutWeight(1)
+          .onChange(v => { this.mcastAddr = v })
+      }.width('100%')
+
+      Row() {
+        Text('组播端口').width(180)
+        TextInput({ text: this.mcastPort, placeholder: '6969' }).width(120).type(InputType.Number)
+          .onChange(v => { this.mcastPort = v })
+      }.width('100%')
+
+      Text('组播留空即关闭；客户端 RRQ 带 multicast 选项时按此地址下发 DATA（须为 224.0.0.0/4）')
+        .fontSize(12).opacity(0.6)
+
+      Row() {
         Text('Syslog 日志文件').width(180)
         TextInput({ text: this.syslogFile }).layoutWeight(1)
           .onChange(v => { this.syslogFile = v })
@@ -175,6 +222,7 @@ struct Index {
           this.logs = [...TftpdService.logs];
         })
     }.padding(12).alignItems(HorizontalAlign.Start)
+    }.scrollBar(BarState.Auto).height('100%')
   }
 
   private securityText(): string {
@@ -221,6 +269,18 @@ struct Index {
     if (n >= 0) this.negociate = n !== 0;
     const w = TftpdService.getInt(KEY_WINSIZE);   /* 整型键，须用 getInt 读取 */
     this.winSize = w > 0 ? `${w}` : '1';
+    // LocalIP：枚举本机网卡地址，回填已保存的选择
+    const ips = TftpdService.localIPv4s();
+    const opts: SelectOption[] = [{ value: '全部接口' }];
+    ips.forEach((ip: string) => { opts.push({ value: ip }); });
+    this.localIpOpts = opts;
+    this.localIp = TftpdService.getStr(KEY_LOCALIP);
+    const idx = this.localIpOpts.findIndex((o: SelectOption) => `${o.value}` === this.localIp);
+    this.localIpIndex = idx > 0 ? idx : 0;
+    if (idx <= 0) this.localIp = '';
+    this.mcastAddr = TftpdService.getStr(KEY_MCAST_ADDR);
+    const mp = TftpdService.getInt(KEY_MCAST_PORT);
+    this.mcastPort = mp > 0 ? `${mp}` : '';
     this.syslogFile = TftpdService.getStr(KEY_SYSLOG_FILE);
     const svc = TftpdService.getInt(KEY_SERVICES);
     const mask = svc > 0 ? svc : 0x0001;
@@ -258,6 +318,9 @@ struct Index {
     TftpdService.setInt(KEY_RETRANSMIT, parseInt(this.retransmit) || 6);
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
     TftpdService.setInt(KEY_WINSIZE, Number(this.winSize));
+    TftpdService.setStr(KEY_LOCALIP, this.localIp);
+    TftpdService.setStr(KEY_MCAST_ADDR, this.mcastAddr.trim());
+    TftpdService.setInt(KEY_MCAST_PORT, parseInt(this.mcastPort) || 0);
     TftpdService.setStr(KEY_SYSLOG_FILE, this.syslogFile);
     TftpdService.setInt(KEY_SERVICES, this.serviceMask());
     TftpdService.setStr(KEY_BASEDIR, this.baseDir);
@@ -278,21 +341,56 @@ struct Index {
       wantAgentObj);
   }
 
+  // 长时任务不可用时（部分手机/模拟器返回 9800005），退化为普通常驻通知
+  private publishRunningNotice(text: string): void {
+    const req: notificationManager.NotificationRequest = {
+      id: Index.NOTIFY_ID,
+      content: {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+        normal: { title: 'Tftpd32', text: text, additionalText: '' }
+      }
+    };
+    notificationManager.publish(req).catch((e: BusinessError) => {
+      if (e?.code === 1600004) {
+        // 通知开关未开启：弹出授权后重发一次，交由用户决定
+        notificationManager.requestEnableNotification(getContext(this) as common.UIAbilityContext)
+          .then(() => notificationManager.publish(req))
+          .catch((e2: BusinessError) => {
+            TftpdService.logs.push(`提示：通知发布失败（${e2?.code ?? '?'}）`);
+          });
+        return;
+      }
+      TftpdService.logs.push(`提示：通知发布失败（${e?.code ?? '?'}）`);
+    });
+  }
+
+  private cancelRunningNotice(): void {
+    notificationManager.cancel(Index.NOTIFY_ID).catch((e: BusinessError) => {
+      TftpdService.logs.push(`提示：通知取消失败（${e?.code ?? '?'}）`);
+    });
+  }
+
   private async toggleService(on: boolean): Promise<void> {
     this.applySettings();
     if (on) {
       try {
         await this.startContinuousTask();
+        this.ctRunning = true;
       } catch (e) {
-        // 手机端不支持 taskKeeping 时降级：仅前台可用，日志提示
-        TftpdService.logs.push('提示：此设备不支持后台常驻，退后台后服务可能中断');
+        // 手机端不支持 taskKeeping 时降级：仅前台可用 + 常驻通知提示
+        const err = e as BusinessError;
+        this.ctRunning = false;
+        TftpdService.logs.push(`提示：此设备不支持后台常驻（${err?.code ?? '?'}: ${err?.message ?? ''}），退后台后服务可能中断`);
       }
       this.running = TftpdService.start();
+      if (this.running && !this.ctRunning) this.publishRunningNotice(`服务运行中（端口 ${this.port}）`);
       TftpdService.logs.push(this.running ? `TFTP 服务已启动（端口 ${this.port}）` : 'TFTP 服务启动失败（端口被占用？）');
     } else {
       TftpdService.stop();
       this.running = false;
-      try { await backgroundTaskManager.stopBackgroundRunning(getContext(this)); } catch (_e) { /* 未申请过 */ }
+      try { if (this.ctRunning) await backgroundTaskManager.stopBackgroundRunning(getContext(this)); } catch (_e) { /* 未申请过 */ }
+      this.ctRunning = false;
+      this.cancelRunningNotice();
       TftpdService.logs.push('TFTP 服务已停止');
     }
     this.logs = [...TftpdService.logs];

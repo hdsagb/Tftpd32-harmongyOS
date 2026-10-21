@@ -13,6 +13,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <poll.h>
+#include <time.h>
+#include <errno.h>
 
 static int udp_sock (const char *ip, int port, struct sockaddr_in *to)
 {
@@ -274,13 +276,230 @@ struct timeval tv = { 3, 0 };
     return 0;
 }
 
+/* ---------- TFTP 组播（RFC 2090）客户端 ----------
+   RRQ 带 multicast 选项 → 解析 OACK 中的 <地址>,<端口> → 加入组播组接收 DATA。
+   本工具按 OACK 的单播端口回 ACK，用于验证服务器 DATA 是否发往组播地址。 */
+static int do_mcast (const char *ip, int port, const char *remote,
+                     const char *local, const char *group, int gport)
+{
+struct sockaddr_in to, grp, from;
+struct ip_mreq mreq;
+int s, rs, n, len, blk = 0, total = 0, pos, ok = 0;
+unsigned char pkt [2048], ack [4];
+char maddr [64] = "";
+socklen_t fromlen;
+FILE *f;
+int True = 1;
+struct timeval tv = { 3, 0 };
+
+    /* 先发 RRQ 并读 OACK：这一步只需一个未绑定端口的 socket，任何域都能做 */
+    memset (& grp, 0, sizeof grp);
+    grp.sin_family = AF_INET;
+    grp.sin_port   = htons ((unsigned short) gport);
+    if (inet_pton (AF_INET, group, & grp.sin_addr) != 1)
+    {   printf ("invalid multicast address %s\n", group);  return 2; }
+
+    s = udp_sock (ip, port, & to);
+    len = 0;
+    pkt [len++] = 0;  pkt [len++] = 1;                          /* RRQ */
+    memcpy (pkt + len, remote, strlen (remote) + 1);  len += (int) strlen (remote) + 1;
+    memcpy (pkt + len, "octet", 6);                   len += 6;
+    memcpy (pkt + len, "multicast", 10);              len += 10;
+    pkt [len++] = 0;                                            /* 选项值为空 */
+    sendto (s, pkt, len, 0, (struct sockaddr *) & to, sizeof to);
+
+    fromlen = sizeof from;
+    n = (int) recvfrom (s, pkt, sizeof pkt, 0, (struct sockaddr *) & from, & fromlen);
+    if (n < 4)
+    {   printf ("no OACK (n=%d)\n", n);  close (s);  return 1; }
+
+    printf ("reply %d bytes opcode=%d\n", n, (pkt[0] << 8) | pkt[1]);
+    if (((pkt[0] << 8) | pkt[1]) != 6)
+    {   printf ("server refused option negotiation (no multicast)\n");  close (s);  return 1; }
+    to = from;                       /* ACK 发往 OACK 的来源端口（传输 socket） */
+
+    for (pos = 2; pos + 1 < n; )
+    {   char *k = (char *) pkt + pos;
+        int kl = (int) strnlen (k, (size_t) (n - pos));
+        char *v;
+        if (pos + kl + 1 > n)  break;
+        v = k + kl + 1;
+        {   int vl = (int) strnlen (v, (size_t) (n - pos - kl - 1));
+            printf ("OACK %s=%s\n", k, v);
+            if (strcmp (k, "multicast") == 0)
+            {   strncpy (maddr, v, sizeof maddr - 1);  ok = 1; }
+            pos += kl + 1 + vl + 1;
+        }
+    }
+    if (! ok)
+    {   printf ("OACK without multicast option -> server not configured\n");
+        close (s);  return 1; }
+
+    /* OACK 的确认块号为 0 */
+    ack [0] = 0;  ack [1] = 4;  ack [2] = 0;  ack [3] = 0;
+    sendto (s, ack, 4, 0, (struct sockaddr *) & to, sizeof to);
+
+    /* 再绑定组播端口并加入组。部分域（如 hdc shell）禁止 bind 显式端口，
+       此时 OACK 协商结果仍可验证，但无法接收 DATA。 */
+    rs = socket (AF_INET, SOCK_DGRAM, 0);
+    setsockopt (rs, SOL_SOCKET, SO_REUSEADDR, & True, sizeof True);
+    setsockopt (rs, SOL_SOCKET, SO_RCVTIMEO, & tv, sizeof tv);
+    if (bind (rs, (struct sockaddr *) & grp, sizeof grp) != 0)
+    {   printf ("bind multicast addr failed: %s, retry INADDR_ANY\n", strerror (errno));
+        grp.sin_addr.s_addr = htonl (INADDR_ANY);
+        if (bind (rs, (struct sockaddr *) & grp, sizeof grp) != 0)
+        {   printf ("bind multicast port %d failed: %s\n", gport, strerror (errno));
+            printf ("OACK multicast=%s OK (receive unavailable in this domain)\n", maddr);
+            close (rs);  close (s);
+            return 0;
+        }
+    }
+    memset (& mreq, 0, sizeof mreq);
+    {   struct sockaddr_in grpAddr;
+        memset (& grpAddr, 0, sizeof grpAddr);
+        grpAddr.sin_family = AF_INET;
+        grpAddr.sin_port   = htons ((unsigned short) gport);
+        inet_pton (AF_INET, group, & grpAddr.sin_addr);
+        mreq.imr_multiaddr = grpAddr.sin_addr;
+        mreq.imr_interface.s_addr = htonl (INADDR_ANY);
+    }
+    if (setsockopt (rs, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) & mreq, sizeof mreq) != 0)
+    {   printf ("IP_ADD_MEMBERSHIP %s failed: %s\n", group, strerror (errno));
+        close (rs);  close (s);  return 1; }
+
+    f = fopen (local, "wb");
+    if (f == NULL)  { printf ("cannot create %s\n", local);  close (s);  close (rs);  return 1; }
+
+    for (;;)
+    {   int payload;
+        fromlen = sizeof from;
+        n = (int) recvfrom (rs, pkt, sizeof pkt, 0, (struct sockaddr *) & from, & fromlen);
+        if (n < 4)  { printf ("timeout after %d bytes\n", total);  break; }
+        if (((pkt[0] << 8) | pkt[1]) != 3)  continue;          /* 忽略非 DATA（含自身回环） */
+        blk     = (pkt[2] << 8) | pkt[3];
+        payload = n - 4;
+        fwrite (pkt + 4, 1, (size_t) payload, f);
+        total += payload;
+        ack [2] = pkt[2];  ack [3] = pkt[3];
+        sendto (s, ack, 4, 0, (struct sockaddr *) & to, sizeof to);
+        printf ("blk %d payload %d (from %s:%d)\n", blk, payload,
+                inet_ntoa (from.sin_addr), ntohs (from.sin_port));
+        if (payload < 512)  break;
+    }
+    fclose (f);
+    close (s);
+    close (rs);
+    printf ("multicast %s group %s:%d blk=%d bytes=%d\n", maddr, group, gport, blk, total);
+    return ok ? 0 : 1;
+}
+
+/* ---------- TFTP 下载（RRQ，无选项协商），用于单播回归 ---------- */
+static int do_get (const char *ip, int port, const char *remote, const char *local)
+{
+struct sockaddr_in to, from;
+unsigned char pkt [2048], ack [4];
+socklen_t fromlen;
+int s, n, len, total = 0;
+FILE *f;
+
+    s = udp_sock (ip, port, & to);
+    len = 0;
+    pkt [len++] = 0;  pkt [len++] = 1;
+    memcpy (pkt + len, remote, strlen (remote) + 1);  len += (int) strlen (remote) + 1;
+    memcpy (pkt + len, "octet", 6);                   len += 6;
+    sendto (s, pkt, len, 0, (struct sockaddr *) & to, sizeof to);
+
+    f = fopen (local, "wb");
+    if (f == NULL)  { printf ("cannot create %s\n", local);  close (s);  return 1; }
+    for (;;)
+    {   int payload;
+        fromlen = sizeof from;
+        n = (int) recvfrom (s, pkt, sizeof pkt, 0, (struct sockaddr *) & from, & fromlen);
+        if (n < 4)  { printf ("timeout after %d bytes\n", total);  break; }
+        if (((pkt[0] << 8) | pkt[1]) != 3)
+        {   printf ("unexpected opcode %d\n", (pkt[0] << 8) | pkt[1]);  break; }
+        payload = n - 4;
+        fwrite (pkt + 4, 1, (size_t) payload, f);
+        total += payload;
+        ack [0] = 0;  ack [1] = 4;  ack [2] = pkt[2];  ack [3] = pkt[3];
+        sendto (s, ack, 4, 0, (struct sockaddr *) & from, fromlen);
+        to = from;
+        if (payload < 512)  break;
+    }
+    fclose (f);
+    close (s);
+    printf ("download %s -> %s bytes=%d\n", remote, local, total);
+    return 0;
+}
+
+/* ---------- TFTP 上传（WRQ），用于在服务器根目录准备下载测试文件 ---------- */
+static int do_put (const char *ip, int port, const char *remote, const char *local)
+{
+struct sockaddr_in to, from;
+unsigned char pkt [516], ack [4];
+socklen_t fromlen;
+int s, n, len, blk = 1;
+FILE *f;
+
+    f = fopen (local, "rb");
+    if (f == NULL)  { printf ("cannot open %s\n", local);  return 1; }
+    s = udp_sock (ip, port, & to);
+    len = 0;
+    pkt [len++] = 0;  pkt [len++] = 2;                              /* WRQ */
+    memcpy (pkt + len, remote, strlen (remote) + 1);  len += (int) strlen (remote) + 1;
+    memcpy (pkt + len, "octet", 6);                   len += 6;
+    memcpy (pkt + len, "blksize", 8);                 len += 8;
+    memcpy (pkt + len, "512", 4);                     len += 4;
+    sendto (s, pkt, len, 0, (struct sockaddr *) & to, sizeof to);
+    fromlen = sizeof from;
+    n = (int) recvfrom (s, pkt, sizeof pkt, 0, (struct sockaddr *) & from, & fromlen);
+    if (n < 4 || ((pkt[0] << 8) | pkt[1]) != 6)
+    {   printf ("WRQ refused (n=%d op=%d)\n", n, n >= 2 ? (pkt[0] << 8) | pkt[1] : -1);
+        fclose (f);  close (s);  return 1; }
+    printf ("WRQ accepted (OACK %d bytes from %s:%d)\n", n,
+            inet_ntoa (from.sin_addr), ntohs (from.sin_port));
+    to = from;                       /* 之后的 DATA 必须发往 OACK 的来源端口（传输 socket） */
+
+    for (;;)
+    {   int got = (int) fread (pkt + 4, 1, 512, f);
+        int tries;
+        pkt [0] = 0;  pkt [1] = 3;
+        pkt [2] = (unsigned char) (blk >> 8);  pkt [3] = (unsigned char) (blk & 0xFF);
+        for (tries = 0; tries < 4; tries++)
+        {
+            sendto (s, pkt, got + 4, 0, (struct sockaddr *) & to, sizeof to);
+            fromlen = sizeof from;
+            n = (int) recvfrom (s, ack, sizeof ack, 0, (struct sockaddr *) & from, & fromlen);
+            if (n >= 4 && ((ack[0] << 8) | ack[1]) == 4 && ((ack[2] << 8) | ack[3]) == blk)
+                break;
+            /* 部分实现先补发 ACK(blk-1)，重发本块即可 */
+            printf ("waiting ack blk %d (n=%d op=%d blk=%d), resend\n", blk, n,
+                    n >= 2 ? (ack[0] << 8) | ack[1] : -1, n >= 4 ? (ack[2] << 8) | ack[3] : -1);
+        }
+        if (tries >= 4)
+        {   printf ("no ack for blk %d\n", blk);  fclose (f);  close (s);  return 1; }
+        blk++;
+        if (got < 512)  break;
+    }
+    fclose (f);
+    close (s);
+    printf ("uploaded %s -> %s (last blk %d)\n", local, remote, blk - 1);
+    return 0;
+}
+
 int main (int argc, char **argv)
 {
     setvbuf (stdout, NULL, _IONBF, 0);   /* hdc shell 下 stdout 非 tty，默认全缓冲会丢失超时信息 */
+    if (argc >= 6 && strcmp (argv[1], "put") == 0)
+        return do_put (argv[2], atoi (argv[3]), argv[4], argv[5]);
+    if (argc >= 6 && strcmp (argv[1], "get") == 0)
+        return do_get (argv[2], atoi (argv[3]), argv[4], argv[5]);
+    if (argc >= 8 && strcmp (argv[1], "mcast") == 0)
+        return do_mcast (argv[2], atoi (argv[3]), argv[4], argv[5], argv[6], atoi (argv[7]));
     if (argc >= 6 && strcmp (argv[1], "dhcp") == 0)
         return do_dhcp (argv[2], argv[3], atoi (argv[4]), argv[5],
                         argc >= 7 ? argv[6] : NULL);
-    if (argc < 4)  { printf ("usage: m2tool syslog|dns|ntp|bad|dhcp ...\n");  return 2; }
+    if (argc < 4)  { printf ("usage: m2tool syslog|dns|ntp|bad|dhcp|mcast|put|get ...\n");  return 2; }
     if (strcmp (argv[1], "syslog") == 0 && argc >= 6)
         return do_syslog (argv[2], atoi (argv[3]), atoi (argv[4]), atoi (argv[5]));
     if (strcmp (argv[1], "ntp") == 0)

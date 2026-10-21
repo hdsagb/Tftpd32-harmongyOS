@@ -219,6 +219,15 @@ export class TftpdService {
     return tftpd.computeMd5(path) ?? '';
   }
 
+  static localIPv4s(): string[] {
+    try {
+      const s = tftpd.getLocalIPv4s() ?? '';
+      return s.length > 0 ? s.split(',') : [];
+    } catch (_e) {
+      return [];
+    }
+  }
+
   static leases(): DhcpLease[] {
     try {
       return JSON.parse(tftpd.getDhcpLeases()) as DhcpLease[];

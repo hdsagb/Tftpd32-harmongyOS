@@ -15,3 +15,4 @@ export const computeMd5: (path: string) => string | undefined;
 export const listDirectory: (path: string) => string;
 export const getSettingStr: (key: string) => string;
 export const getDhcpLeases: () => string;
+export const getLocalIPv4s: () => string;
