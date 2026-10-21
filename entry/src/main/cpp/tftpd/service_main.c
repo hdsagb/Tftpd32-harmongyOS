@@ -196,9 +196,3 @@ void TftpdServiceStop (void)
 {
     PalServiceStopMask (SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS);
 }
-
-/* ==================================================================
- * 临时链接桩：dns.c 尚未移植（TASK6 将删除本桩，届时由真实实现覆盖）。
- * weak 保证后续加入强定义时不冲突。
- * ================================================================== */
-__attribute__((weak)) void ListenDNSMessage (void *param)  { (void) param; }

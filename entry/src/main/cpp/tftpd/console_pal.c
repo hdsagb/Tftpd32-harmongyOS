@@ -106,6 +106,20 @@ char szBuf [8192];
             PalEmitEvent ("syslog", szJson);
             break;
         }
+        case C_DNS_NEW_ENTRY :
+        {
+            const struct S_DNS_NewEntry *pMsg = (const struct S_DNS_NewEntry *) msg_stuff;
+            char szName [NI_MAXHOST + 8], szV4 [64], szV6 [128], szJson [NI_MAXHOST * 2 + 300];
+
+            PalJsonEscape (szName, sizeof szName, pMsg->name);
+            PalJsonEscape (szV4,   sizeof szV4,   pMsg->ipv4);
+            PalJsonEscape (szV6,   sizeof szV6,   pMsg->ipv6);
+            snprintf (szJson, sizeof szJson,
+                      "{\"name\":\"%s\",\"ipv4\":\"%s\",\"ipv6\":\"%s\"}",
+                      szName, szV4, szV6);
+            PalEmitEvent ("dns", szJson);
+            break;
+        }
         case C_SERVICES_STARTED : Emit ("started", "{}");  break;
         case C_TFTP_TRF_END :
         {
