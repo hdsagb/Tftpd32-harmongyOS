@@ -38,6 +38,7 @@ struct S_ThreadMonitoring
     SOCKET  skt;         // Listening SOCKET
 	int     bSoftReset;  // Thread will be reset
 	BOOL    bInit;		 // inits are terminated
+	pthread_t hThread;   // service thread id（service_main.c 启停用）
 }  
 tThreads [TH_NUMBER];
 

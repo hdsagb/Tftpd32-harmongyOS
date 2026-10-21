@@ -110,6 +110,12 @@ enum e_Services       { TFTPD32_NONE=0,
 #define TFTPD32_ALL_SERVICES  (TFTPD32_TFTP_SERVER  | TFTPD32_TFTP_CLIENT |  TFTPD32_SYSLOG_SERVER | TFTPD32_DHCP_SERVER | TFTPD32_DNS_SERVER )
 #define TFTPD32_MNGT_THREADS  ( TFTPD32_CONSOLE | TFTPD32_REGISTRY | TFTPD32_SCHEDULER )
 
+// 服务位掩码简名（与原版 e_Services 取值一致，供 service_main.c 表驱动启停）
+#define SERVICE_TFTP          TFTPD32_TFTP_SERVER       /* 0x0001 */
+#define SERVICE_SYSLOG        TFTPD32_SYSLOG_SERVER     /* 0x0008 */
+#define SERVICE_SNTP          TFTPD32_SNTP_SERVER       /* 0x0010 */
+#define SERVICE_DNS           TFTPD32_DNS_SERVER        /* 0x0020 */
+
 // external files : .ini and .chm
 extern char                     szTftpd32Help [MAX_PATH];// Full path of the help file
 extern char                     szTftpd32IniFile [MAX_PATH];// Full path of the ini file
