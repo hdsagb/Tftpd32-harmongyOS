@@ -1,4 +1,5 @@
 import { TftpdService, TrfStat } from '../services/TftpdService';
+import { SyslogPage, SntpPage, DnsPage, ClientPage, DirectoryPage } from './M2Pages';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import { wantAgent } from '@kit.AbilityKit';
 
@@ -9,6 +10,8 @@ const KEY_SECURITY = 'SecurityLevel';
 const KEY_TIMEOUT = 'Timeout';
 const KEY_RETRANSMIT = 'MaxRetransmit';
 const KEY_NEGOCIATE = 'Negociate';
+const KEY_WINSIZE = 'WinSize';
+const KEY_SYSLOG_FILE = 'SaveSyslogFile';
 const BUNDLE_NAME = 'com.example.myapplication';
 const ABILITY_NAME = 'EntryAbility';
 
@@ -21,6 +24,8 @@ struct Index {
   @State timeout: string = '3';
   @State retransmit: string = '6';
   @State negociate: boolean = true;
+  @State winSize: string = '1';
+  @State syslogFile: string = '';
   @State running: boolean = false;
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
@@ -56,7 +61,12 @@ struct Index {
         TabContent() { this.SettingsPage() }.tabBar('设置')
         TabContent() { this.TftpPage() }.tabBar('TFTP')
         TabContent() { this.LogPage() }.tabBar('日志')
-      }.layoutWeight(1)
+        TabContent() { SyslogPage() }.tabBar('Syslog')
+        TabContent() { SntpPage() }.tabBar('SNTP')
+        TabContent() { DnsPage() }.tabBar('DNS')
+        TabContent() { ClientPage() }.tabBar('客户端')
+        TabContent() { DirectoryPage() }.tabBar('目录')
+      }.layoutWeight(1).barMode(BarMode.Scrollable)
     }.height('100%')
   }
 
@@ -104,6 +114,18 @@ struct Index {
         Toggle({ type: ToggleType.Switch, isOn: this.negociate })
           .onChange(on => { this.negociate = on })
         Text('RFC2347/2348/2349').fontSize(12).opacity(0.6).margin({ left: 8 })
+      }.width('100%')
+
+      Row() {
+        Text('WinSize（RFC7440）').width(180)
+        TextInput({ text: this.winSize }).width(120).type(InputType.Number)
+          .onChange(v => { this.winSize = v })
+      }.width('100%')
+
+      Row() {
+        Text('Syslog 日志文件').width(180)
+        TextInput({ text: this.syslogFile }).layoutWeight(1)
+          .onChange(v => { this.syslogFile = v })
       }.width('100%')
 
       Blank()
@@ -158,6 +180,9 @@ struct Index {
     if (r > 0) this.retransmit = `${r}`;
     const n = TftpdService.getInt(KEY_NEGOCIATE);
     if (n >= 0) this.negociate = n !== 0;
+    const w = TftpdService.getStr(KEY_WINSIZE);
+    this.winSize = w === '' ? '1' : w;
+    this.syslogFile = TftpdService.getStr(KEY_SYSLOG_FILE);
   }
 
   private applySettings(): boolean {
@@ -166,6 +191,8 @@ struct Index {
     TftpdService.setInt(KEY_TIMEOUT, parseInt(this.timeout) || 3);
     TftpdService.setInt(KEY_RETRANSMIT, parseInt(this.retransmit) || 6);
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
+    TftpdService.setInt(KEY_WINSIZE, Number(this.winSize));
+    TftpdService.setStr(KEY_SYSLOG_FILE, this.syslogFile);
     TftpdService.setStr(KEY_BASEDIR, this.baseDir);
     return TftpdService.save();
   }
