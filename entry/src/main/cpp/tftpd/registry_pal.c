@@ -100,6 +100,11 @@ int  bFound = FALSE, bOk;
     }
     if (! bFound)  fprintf (fDst, "%s=%s\n", szKey, szVal);
     bOk = (fclose (fDst) == 0);
+#ifdef _WIN32
+    /* MSVC 的 rename 在目标已存在时失败（POSIX 直接覆盖），
+       宿主侧单元测试在 Windows 上跑，需先删掉旧文件 */
+    if (bOk)  remove (szPath);
+#endif
     if (bOk)  bOk = (rename (szTmpPath, szPath) == 0);
     if (! bOk)  remove (szTmpPath);
     pthread_mutex_unlock (& s_iniMx);

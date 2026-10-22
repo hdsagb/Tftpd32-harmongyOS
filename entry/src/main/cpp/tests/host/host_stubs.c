@@ -44,18 +44,12 @@ void __cdecl SVC_WARNING (const char *szFmt, ...)
 /* linked_list.c 的消息队列：宿主测试单线程，直接返回 */
 void WaitForMsgQueueToFinish (int id) { (void) id; }
 
-/* registry_pal.c 的三个键读写：宿主测试不落盘，直接返回失败 */
-int ReadKey (const char *szRegPath, const char *szKey, void *buf, int BufSize,
-             int nType, const char *szIniFile)
-{ (void) szRegPath; (void) szKey; (void) buf; (void) BufSize; (void) nType; (void) szIniFile;  return 0; }
+/* 键读写由生产实现 registry_pal.c 提供：保存路径要真落盘才能验证
+   “未登记键（Windows/N-A）保存后保留”这一台账结论 */
 
-int SaveKey (const char *szRegPath, const char *szKey, const void *buf, int BufSize,
-             int nType, const char *szIniFile)
-{ (void) szRegPath; (void) szKey; (void) buf; (void) BufSize; (void) nType; (void) szIniFile;  return 0; }
-
-int AsyncSaveKey (const char *szRegPath, const char *szKey, const void *buf, int BufSize,
-                  int nType, const char *szIniFile)
-{ (void) szRegPath; (void) szKey; (void) buf; (void) BufSize; (void) nType; (void) szIniFile;  return 0; }
+/* registry_pal.c 的 ini 互斥量：宿主测试单线程，恒成功 */
+int pthread_mutex_lock (pthread_mutex_t *m)   { (void) m;  return 0; }
+int pthread_mutex_unlock (pthread_mutex_t *m) { (void) m;  return 0; }
 
 /* ip_pal.c 依赖的 POSIX 接口：宿主上无网卡枚举需求 */
 int getifaddrs (struct ifaddrs **ifap)

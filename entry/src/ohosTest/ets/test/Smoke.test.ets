@@ -148,5 +148,38 @@ export default function smokeTest() {
       expect(st.state).assertEqual('done');
       expect(readText(dst)).assertEqual('upload payload');
     });
+
+    // B3：Enable IPv4=0 / Enable IPv6=1 时仅按 IPv6 监听，经 ::1 回环下载
+    // 覆盖 A1 的地址族选择分支（AF_INET6）与 tftpd_thread 的 IPv6 对端处理
+    it('B3_ipv6_only_rrq', 0, async () => {
+      tftpd.stopServiceMask(0x0001);
+      await sleep(500);
+
+      const src = `${BOOT}/hello6.txt`;
+      const dst = `${SMOKE_DIR}/down6.txt`;
+      writeText(src, 'hello ipv6');
+
+      expect(tftpd.setSettingInt('Enable IPv4', 0)).assertTrue();
+      expect(tftpd.setSettingInt('Enable IPv6', 1)).assertTrue();
+      expect(tftpd.saveSettings()).assertTrue();
+      tftpd.readSettings();
+      expect(tftpd.getSettingInt('Enable IPv4')).assertEqual(0);
+
+      logs = [];
+      expect(tftpd.startServiceMask(0x0001)).assertTrue();
+      await sleep(1500);
+
+      resetClient();
+      expect(tftpd.startTftpClient(1, '::1', PORT, 'hello6.txt', dst, 0)).assertTrue();
+      const st = await waitClient(15000);
+      expect(st.state).assertEqual('done');
+      expect(readText(dst)).assertEqual('hello ipv6');
+
+      // 恢复双栈默认，避免污染后续用例
+      tftpd.stopServiceMask(0x0001);
+      await sleep(300);
+      tftpd.setSettingInt('Enable IPv4', 1);
+      tftpd.saveSettings();
+    });
   });
 }

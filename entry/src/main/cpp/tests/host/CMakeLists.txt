@@ -18,6 +18,7 @@ add_executable(tftpd32_host_tests
     ${TFTPD_DIR}/bootpd_util.c
     ${TFTPD_DIR}/ip_pal.c
     ${TFTPD_DIR}/settings_pal.c
+    ${TFTPD_DIR}/registry_pal.c   # 真实 ini 读写：验证保存时保留未登记键
 )
 
 # compat 必须排在前面：Windows 没有 sys/socket.h、pthread.h 等 POSIX 头
