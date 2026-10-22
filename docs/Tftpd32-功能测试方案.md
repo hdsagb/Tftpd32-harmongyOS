@@ -633,3 +633,56 @@ M2 同时确认的平台限制（非缺陷）：E1 模拟器只转发 TCP，TFTP
 | BUG-014 | UI-01 / UI-05 | 2in1 窗口标题、桌面图标名显示 `label` | 标题为 `Tftpd32 v4.74` | 显示资源占位符 `label` | `AppScope/string.json` 只有 `app_name`，`entry` 的 `EntryAbility_label` 为工程模板值 `label`，且 `app_name` 为模板名 | `AppScope` 改为 `Tftpd32`；`EntryAbility_label`、`module_desc` 同步为 `Tftpd32` / `Tftpd32 for HarmonyOS` | P1 | Fixed |
 
 阶段 C 的平台限制（非缺陷）：模拟器 `TASK_KEEPING` 返回 9800005，长时任务降级为普通常驻通知；`hdc shell` 域禁止 bind 显式 UDP 端口，组播接收侧与 DHCP 二层广播对拍仍需真机。
+
+### 9.4 阶段 D 交付打磨记录（M4）
+
+#### 9.4.1 D1 体积报告（release，E1 模拟器同源构建）
+
+| 产物 | 体积 | 说明 |
+|---|---|---|
+| `entry-default-unsigned.hap` | 1016.8 KB | 含 arm64-v8a + x86_64 两套原生库 |
+| `libtftpd32.so`（arm64-v8a，strip） | 390.4 KB | `-O2 -s` |
+| `libtftpd32.so`（x86_64，strip） | 401.6 KB | 同上 |
+| 上游 `Tftpd32_Installer_v4.74.exe` | 644.9 KB | 安装器，含 exe + 帮助等资源 |
+
+构建参数：`CMakeLists.txt` 全局 `-O2`；release 追加 `-s`（去符号表）；`-static-libstdc++` 并同时在
+`entry/build-profile.json5` 的 `nativeLib.filter.excludes` 排除 `libc++_shared.so`（原会额外打包约 2.4 MB）。
+体积与上游保持同一数量级（约 1 MB vs 0.6 MB），符合“体积小”约束。
+
+#### 9.4.2 D2 启动即服务
+
+- 实现：页面 `aboutToAppear` 调用 `autoStart()`；`TftpdService.started` 标志保证原生 `startService` 只执行一次
+  （页面重建、通知授权返回都不会重启服务），启停日志由原生 `service_main.c` 统一输出。
+- 失败降级：`startService` 返回 false 时界面保持“已停止”，日志提示“启动失败，请查看日志中的绑定失败原因”，
+  用户可修正端口后手动开启。
+- 执行记录（Pura 90 Pro 模拟器，冷启动 + `aa start`）：日志页仅一条
+  `TFTP 服务已启动（端口 6900）`；`rtool 127.0.0.1 6900 0009` 收到 `ERROR code=4 Illegal TFTP operation`，
+  `rtool ... RRQ nosuchfile` 收到 `ERROR code=1 File not found`，确认无需手动开启即可对外服务。
+
+#### 9.4.3 D3 错误提示中文化
+
+| 场景 | 位置 | 提示文案 |
+|---|---|---|
+| 端口被占用（EADDRINUSE） | `service_main.c` / `tftpd_main.c` | “端口已被占用” / “该端口已被其它应用占用，请更换端口后重试” |
+| 绑定特权端口（EACCES） | `service_main.c` | “无权限绑定该端口（1024 以下为系统特权端口）” |
+| LocalIP 不存在（EADDRNOTAVAIL） | `service_main.c` / `tftpd_main.c` | “本机没有该地址，请检查绑定网卡设置” |
+| 网络不可达 / 协议族不支持 / 资源不足 | `service_main.c` | “网络不可达” / “协议族不受支持” / “系统资源不足” |
+| 客户端主机名解析失败 | `tftp_client.c` | “主机名解析失败（网络不可达或 DNS 不可用）” |
+| 客户端本地文件/超时/服务器错误 | `tftp_client.c` | “无法创建本地文件（请检查存储权限或磁盘空间）” / “传输超时（对端无响应）” / “服务器返回错误” |
+| 长时任务被拒 | `Index.ets` `bgErrText` | 9800005 → “系统未授予长时任务（该设备或模拟器不支持）”；201 → “应用没有后台运行权限” |
+| 通知权限未开启 | `Index.ets` | 1600004 → “通知权限未开启” |
+| 签名/安装被拒 | 系统安装器 / DevEco | 由系统输出，应用内不可定制（记录为平台边界） |
+
+TFTP 协议应答（`ERROR code/msg`）保持英文，符合 RFC1350 且与原版一致，不属于界面提示。
+
+#### 9.4.4 D4 GPLv2 合规
+
+- 根目录新增 `LICENSE`：上游 Tftpd32/Tftpd64 的 GPLv2 原文。
+- 根目录新增 `README.md`：上游署名与链接、许可证、构建/签名命令、运行说明（端口偏移、长时任务降级、配置迁移）。
+- `entry/src/main/cpp/tftpd/` 下源自上游的文件保留原版权头；新增 PAL 文件在 README 中说明来源与作用。
+
+#### 9.4.5 D5 回归与冒烟
+
+- 回归：debug/release 均 `BUILD SUCCESSFUL`；冷启动自动启动、TFTP 6900 监听与错误应答、日志中文提示、
+  常驻通知降级提示均复测通过。
+- 仍阻塞（需真机 E2）：组播接收/ACK、DHCP 二层广播、A3 报文对拍、NF-05/NF-06、真机安装后签名与市场材料。
