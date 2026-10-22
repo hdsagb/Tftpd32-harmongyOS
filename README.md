@@ -57,9 +57,33 @@ powershell -ExecutionPolicy Bypass -File tools\build-install.ps1 -NoInstall     
   并提示在“设置 > 电池”中允许后台活动。
 - 配置文件为沙箱内 `tftpd32.ini`，键名与原版注册表键一致，可直接迁移。
 
+## 应用信息（市场材料）
+
+> 供应用市场提交时直接引用；截图需在真机上补拍（见[真机开发与测试方案](docs/Tftpd32-真机开发与测试方案.md) §10 SG-02）。
+
+**一句话简介**：把 PC 上经典的 Tftpd32 搬到鸿蒙设备的本地网络工具集，一个应用提供 TFTP、Syslog、
+SNTP、DNS、DHCP 五项服务与内置 TFTP 客户端。
+
+**应用简介（约 200 字）**：Tftpd32 for HarmonyOS 是开源工具 Tftpd32/Tftpd64 的鸿蒙适配版，面向
+网络运维、嵌入式开发与设备调试场景。应用内置 TFTP 服务器与客户端（支持 RFC2347/2348/2349 选项协商、
+RFC2090 组播、安全级别与目录权限控制），并提供 Syslog、SNTP、DNS、DHCP 服务；配置键名与原版一致，
+PC 上的 `tftpd32.ini` 可直接迁移。服务在后台通过长时任务保活，退到后台仍可继续响应请求。
+应用完全本地运行，不上传任何数据，无账号与统计 SDK。
+
+**权限用途说明**：
+
+| 权限 | 用途 |
+|---|---|
+| `ohos.permission.INTERNET` | 监听与收发 TFTP/Syslog/SNTP/DNS/DHCP 报文的必需权限，仅用于局域网内与本应用建立的连接 |
+| `ohos.permission.GET_NETWORK_INFO` | 枚举本机网卡地址，用于“绑定网卡（LocalIP）”与 DHCP 地址池配置 |
+| `ohos.permission.KEEP_BACKGROUND_RUNNING` | 服务运行期间申请长时任务，避免应用退到后台后套接字被系统回收 |
+
+**其它需公开的信息**：许可证 GNU GPLv2（见 [LICENSE](LICENSE)）；原作者 Philippe Jounin；
+完整源码即本仓库；无付费内容、无广告、无第三方数据收集。
+
 ## 文档
 
 - [HarmonyOS 适配方案](docs/Tftpd32-HarmonyOS适配方案.md)
 - [功能测试方案](docs/Tftpd32-功能测试方案.md)
-- [真机测试清单](docs/Tftpd32-真机测试清单.md)
+- [真机开发与测试方案](docs/Tftpd32-真机开发与测试方案.md)
 - [M3/M4 计划](docs/superpowers/plans/2026-10-21-tftpd32-m3-m4-plan.md)

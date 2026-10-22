@@ -475,11 +475,16 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | CF-03 | UI 改端口 6910、超时 5、重传 9 →「保存配置」→ `aa force-stop` → 重启 | 界面回填 6910/5/9，服务按 6910 监听 | 通过（**修复缺陷**：原实现启动不加载配置、保存按钮不写原生设置） |
 | CF-04 | 端口 99999、超时 0、重传 0 → 保存 → 启动服务 | 超时/重传回落默认 3/6；端口 99999 绑定失败，服务保持“已停止”，进程存活无崩溃 | 通过（回落默认，与原版 `Port==0` 回落默认端口语义一致） |
 
-键覆盖对照（原文 `tftpd32.ini` → 应用配置文件）：`BaseDirectory`、`SecurityLevel`、`Timeout`、`MaxRetransmit`、`TftpPort`、`WinSize`、`Negociate`、`PXECompatibility`、`DirText`、`ShowProgressBar`、`MD5`、`UnixStrings`、`Beep`、`VirtualRoot`、`LocalIP`、`Services`、`TftpLogFile`、`LowestUDPPort`、`HighestUDPPort`、`Max Simultaneous Transfers`、`Reduce TFTP Path`、`Ignore ack for last TFTP packet`、`Keep transfer Gui`、`Enable IPv6`、`Support for port Option` 均同名读写。本轮补入 `Enable IPv6`、`Support for port Option` 两个键。
+键覆盖对照（原文 `tftpd32.ini` → 应用配置文件）：`BaseDirectory`、`SecurityLevel`、`Timeout`、`MaxRetransmit`、`TftpPort`、`WinSize`、`Negociate`、`PXECompatibility`、`DirText`、`ShowProgressBar`、`MD5`、`UnixStrings`、`Beep`、`VirtualRoot`、`LocalIP`、`Services`、`TftpLogFile`、`LowestUDPPort`、`HighestUDPPort`、`Max Simultaneous Transfers`、`Reduce TFTP Path`、`Ignore ack for last TFTP packet`、`Keep transfer Gui`、`Enable IPv6`、`Support for port Option` 均同名读写。本轮补入 `Enable IPv6`、`Support for port Option`、`Enable IPv4` 三个键。
 
-仍未接线的键（归属后续里程碑）：`PipeSyslogMsg`（M2 Syslog 事件转发，已由 `console_pal.c` 事件通道承担）、`MulticastPort` / `MulticastAddress`（M2 TFTP 组播）、`PersistantLeases` / `DHCP Ping` / `DHCP LocalIP`（M3 DHCP）；`Hide` / `UseEventLog` / `Console Password` / `LastWindowPos` / `Donot verify firewall` 为 Windows GUI/平台相关项，不适用。M2 已补 `SaveSyslogFile` 落盘（见 §6.6.1），`WinSize` 已加 UI 设置项（见 §6.13.2）。
+仍未接线的键（A2/A3 已清账，逐项依据见计划文档 §1.2）：`Console Password`、`PipeSyslogMsg`、`HttpBaseDirectory`、
+`LastWindowPos`、`Hide`、`UseEventLog`、`Donot verify firewall` —— 全部为 N/A 或已由事件通道承担，待接线数为 0；
+其中 `HttpBaseDirectory` 在原版 v4.74 只有注册表项、无任何消费点。`MulticastPort` / `MulticastAddress`（C1 组播）、
+`PersistantLeases` / `DHCP Ping` / `DHCP LocalIP`（M3 DHCP）已接线。M2 已补 `SaveSyslogFile` 落盘（见 §6.6.1），
+`WinSize` 已加 UI 设置项（见 §6.13.2）。
 
-保存时应用只写自己的键集合，原版独有键会在重写时被丢弃（值本身已迁移，不影响行为）。
+保存时**不会丢弃**未登记键：`PalIniSet` 逐行替换登记的键、其余行原样保留（原版 Windows 键、DHCP 动态租约键都不丢），
+回归用例见 §9.5。
 
 ### 6.13 UI 等价性（随里程碑）
 
@@ -694,13 +699,14 @@ TFTP 协议应答（`ERROR code/msg`）保持英文，符合 RFC1350 且与原�
 
 **目的**：把不依赖网络/设备的纯函数从“只能上设备验证”变为本地可回归，作为后续改动的门禁。
 
-- 工程：`entry/src/main/cpp/tests/host/`（独立 CMake 工程，不参与 HAP 构建；只编译 `bootpd_util.c`、`ip_pal.c`）。
+- 工程：`entry/src/main/cpp/tests/host/`（独立 CMake 工程，不参与 HAP 构建；只编译 `bootpd_util.c`、`ip_pal.c`、
+  `settings_pal.c`、`registry_pal.c`）。
 - 兼容层：`tests/host/compat/` 提供自包含 POSIX 头替身（不引入 Winsock，避免 Windows SDK 的
-  `HWND/HINSTANCE/SOCKET/pollfd` 与 `pal_compat.h` 的移植形状冲突）；`host_stubs.c` 提供配置读写、日志、
-  网络与目录遍历桩。
+  `HWND/HINSTANCE/SOCKET/pollfd` 与 `pal_compat.h` 的移植形状冲突）；`host_stubs.c` 提供日志、
+  网络与目录遍历桩（配置读写走生产实现，见 A2/A3 用例）。
 - 运行：`powershell -ExecutionPolicy Bypass -File tools\run-host-tests.ps1`
   （依赖 VS2022 + 自带 CMake，无设备要求；`-Clean` 可重配，`-Config Debug` 可切换配置）。
-- 执行记录：Release 构建通过，**77 条断言全部通过**，覆盖：
+- 执行记录：Release 构建通过，**86 条断言全部通过**，覆盖：
   - `TranslateParam2Value`：`a`（IP 列表）、`s`（字符串与 `$IP$`）、`I/i/N/n`（整数与网络序）、
     `b`（字节列表，空格/点/冒号分隔）、`x`（十六进制 1/2/4 字节）、无前缀原样回退
   - `TranslateExp`：`$IP$`、`$ARCH$`（7→x64）、`$MAC$`、`$BootFileName$`
@@ -709,10 +715,14 @@ TFTP 协议应答（`ERROR code/msg`）保持英文，符合 RFC1350 且与原�
   - 租约池：排序/编号（`qsort` + `ReorderLeases`）、按 IP/MAC 双向查找、过期判定（`tRenewed=0` 判过期）、`FreeLeases` 回收
   - 配置键（A1）：`Enable IPv4=0/1` 与 `Enable IPv6` 从 ini 正确落入 `sSettings`，`Pal_SetSettingInt/Pal_GetSettingInt`
     按原版键名（含空格）读写一致，错误键名不误命中
+  - 配置键（A2/A3 台账）：迁移 ini 中的 `HttpBaseDirectory` / `LastWindowPos` / `Hide` / `UseEventLog` /
+    `Donot verify firewall` 在 `Tftpd32SaveSettings` 后**原样保留**，登记键按当前值覆盖——证明 N/A 键不接线也不丢值
 - 与上游一致性的两个确认点（均为原版固有行为，不是缺陷）：
   - 16 位十六进制字段仍输出 4 字节：原版 `cvt[min(q-p,8)]` 的上限即 `cvt[8]=4`；适配版只拷贝 4 字节，
     避免 LP64 下原版 `%lx` 写 8 字节造成越界。
   - `TranslateExp` 固定写 `to[DHCP_FILE_LEN-1]`；真实调用传入 DHCP 报文内的大缓冲区，因此宿主测试缓冲区取 ≥128 字节。
+- 宿主侧一处平台适配：MSVC 的 `rename` 在目标已存在时失败（POSIX 覆盖），`registry_pal.c` 的 `PalIniSet`
+  在 `_WIN32` 下先删除旧文件；鸿蒙（musl）分支行为不变。
 - 尚未覆盖（留待后续）：`bootpd.c` 的 `DHO_CUSTOM` 报文编码（依赖整个 DHCP 打包链）。
 
 ### 9.6 B1/B2 设备端冒烟与 A1 实测记录（模拟器 E1）
@@ -737,8 +747,12 @@ TFTP 协议应答（`ERROR code/msg`）保持英文，符合 RFC1350 且与原�
 - 签名：`hap-sign-tool sign-app -mode localSign`（复用 `signature/` 内既有密钥与 profile）→ `signature/test-signed.hap`
 - 安装：`hdc install -r signature/test-signed.hap`
 - 执行：`hdc shell aa test -b com.example.myapplication -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 60000`
-- 结果：`Tests run: 5, Failure: 0, Error: 0, Pass: 5`
+- 结果：`Tests run: 6, Failure: 0, Error: 0, Pass: 6`
   - `Tftpd32Smoke`: `B1_config_keys`（`Enable IPv4`/`TftpPort` 落盘与回读）、`B1_service_start`（启动日志含“服务已启动”与端口）、
-    `B2_loopback_rrq`（127.0.0.1 下载内容一致）、`B2_loopback_wrq`（上传落盘内容一致）
+    `B2_loopback_rrq`（127.0.0.1 下载内容一致）、`B2_loopback_wrq`（上传落盘内容一致）、
+    `B3_ipv6_only_rrq`（`Enable IPv4=0`/`Enable IPv6=1` 后仅 `AF_INET6` 监听，经 `::1` 下载内容一致）
   - `ActsAbilityTest`：工程模板自带用例
 - 说明：`entry/src/ohosTest/module.json5` 无需声明 `testRunner`，`aa test` 默认使用系统 `OpenHarmonyTestRunner`。
+- B3 覆盖结论：M3 的 IPv6 能力已在模拟器闭环——`TftpBindLocalInterface` 的 `AF_INET6`/`IPV6_V6ONLY` 分支、
+  `tftpd_thread.c` 的 IPv6 对端处理（含 v4-mapped 归一化）与内置客户端 `AF_UNSPEC` 解析均工作正常；
+  真机只需复测双栈与纯 IPv6 两种形态的对外可达性（见真机清单 G6）。
