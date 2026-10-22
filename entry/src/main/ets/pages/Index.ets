@@ -13,6 +13,7 @@ const KEY_TIMEOUT = 'Timeout';
 const KEY_RETRANSMIT = 'MaxRetransmit';
 const KEY_NEGOCIATE = 'Negociate';
 const KEY_WINSIZE = 'WinSize';
+const KEY_IPV4 = 'Enable IPv4';
 const KEY_LOCALIP = 'LocalIP';
 const KEY_MCAST_ADDR = 'MulticastAddress';
 const KEY_MCAST_PORT = 'MulticastPort';
@@ -34,6 +35,7 @@ struct Index {
   @State retransmit: string = '6';
   @State negociate: boolean = true;
   @State winSize: string = '1';
+  @State ipv4On: boolean = true;    // 原版 Enable IPv4 键，默认开启
   @State localIp: string = '';
   @State localIpIndex: number = 0;
   private localIpOpts: SelectOption[] = [{ value: '全部接口' }];
@@ -203,6 +205,14 @@ struct Index {
       }.width('100%')
 
       Row() {
+        Text('启用 IPv4').width(180)
+        Toggle({ type: ToggleType.Switch, isOn: this.ipv4On })
+          .onChange(on => { this.ipv4On = on })
+        Text('关闭后 TFTP 仅按 IPv6 监听（原版 Enable IPv4 键），重启服务生效')
+          .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
+      }.width('100%')
+
+      Row() {
         Text('组播地址（RFC2090）').width(180)
         TextInput({ text: this.mcastAddr, placeholder: '如 239.255.0.1' }).layoutWeight(1)
           .onChange(v => { this.mcastAddr = v })
@@ -278,6 +288,8 @@ struct Index {
     if (n >= 0) this.negociate = n !== 0;
     const w = TftpdService.getInt(KEY_WINSIZE);   /* 整型键，须用 getInt 读取 */
     this.winSize = w > 0 ? `${w}` : '1';
+    const v4 = TftpdService.getInt(KEY_IPV4);
+    if (v4 >= 0) this.ipv4On = v4 !== 0;
     // LocalIP：枚举本机网卡地址，回填已保存的选择
     const ips = TftpdService.localIPv4s();
     const opts: SelectOption[] = [{ value: '全部接口' }];
@@ -327,6 +339,7 @@ struct Index {
     TftpdService.setInt(KEY_RETRANSMIT, parseInt(this.retransmit) || 6);
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
     TftpdService.setInt(KEY_WINSIZE, Number(this.winSize));
+    TftpdService.setInt(KEY_IPV4, this.ipv4On ? 1 : 0);
     TftpdService.setStr(KEY_LOCALIP, this.localIp);
     TftpdService.setStr(KEY_MCAST_ADDR, this.mcastAddr.trim());
     TftpdService.setInt(KEY_MCAST_PORT, parseInt(this.mcastPort) || 0);

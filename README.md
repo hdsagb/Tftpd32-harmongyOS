@@ -31,16 +31,22 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
     --mode module -p product=default -p buildMode=release --no-daemon
 ```
 
-产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`，安装前需签名：
+产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`，安装前需签名。
+
+### 一键构建 + 签名 + 安装
 
 ```powershell
-java -jar "<SDK>\default\openharmony\toolchains\lib\hap-sign-tool.jar" sign-app `
-  -keyAlias "OpenHarmony Application Release" -signAlg SHA256withECDSA -mode localSign `
-  -appCertFile <appchain.pem> -profileFile <debug-profile.p7b> `
-  -inFile entry\build\default\outputs\default\entry-default-unsigned.hap `
-  -keystoreFile "<SDK>\default\openharmony\toolchains\lib\OpenHarmony.p12" `
-  -outFile entry-signed.hap -keyPwd 123456 -keystorePwd 123456 -signCode 1
+# 构建 release、签名并覆盖安装到已连接设备
+powershell -ExecutionPolicy Bypass -File tools\build-install.ps1
+
+# 常用变体
+powershell -ExecutionPolicy Bypass -File tools\build-install.ps1 -Launch          # 装完自动启动
+powershell -ExecutionPolicy Bypass -File tools\build-install.ps1 -Uninstall       # 先卸载再装（签名材料变更时用）
+powershell -ExecutionPolicy Bypass -File tools\build-install.ps1 -BuildMode debug # 构建 debug 包
+powershell -ExecutionPolicy Bypass -File tools\build-install.ps1 -NoInstall        # 只出已签名 HAP
 ```
+
+脚本会自动完成：定位 DevEco 工具链 → `hvigor assembleHap` → 首次生成调试签名材料（`signature\`，含私钥，已加入 `.gitignore`）→ 用当前设备 UDID 生成并签名 debug profile → 签 HAP → `hdc install -r`。签名材料持久复用，因此后续运行可覆盖安装、保留应用数据。
 
 ## 运行说明
 

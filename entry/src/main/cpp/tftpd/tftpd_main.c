@@ -53,7 +53,7 @@ void ConsoleTftpGetStatistics (void)
 
 
 
-static SOCKET TftpBindLocalInterface (void)
+SOCKET TftpBindLocalInterface (void)
 {
 SOCKET             sListenSocket = INVALID_SOCKET;
 int                Rc;

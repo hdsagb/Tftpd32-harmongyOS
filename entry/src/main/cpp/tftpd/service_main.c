@@ -92,31 +92,43 @@ static int PalSvcStartOne (int i)
         }
     }
 
-    pT->skt = socket (AF_INET, SOCK_DGRAM, 0);
-    if (pT->skt == INVALID_SOCKET)
+    /* TFTP：监听套接字交由原版 TftpBindLocalInterface 创建，
+       按 Enable IPv4 / Enable IPv6 与 LocalIP 选择地址族并绑定；
+       此处硬编码 AF_INET 会让上述设置项失效。失败原因已由其记录。 */
+    if (p->nThread == TH_TFTP)
     {
-        int nErr = errno;
-        LogToMonitor ("%s：创建套接字失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
-        goto error;
+        pT->skt = TftpBindLocalInterface ();
+        if (pT->skt == INVALID_SOCKET)
+            goto error;
     }
-
-    if (setsockopt (pT->skt, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True) != 0)
+    else
     {
-        int nErr = errno;
-        LogToMonitor ("%s：设置 SO_REUSEADDR 失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
-    }
+        pT->skt = socket (AF_INET, SOCK_DGRAM, 0);
+        if (pT->skt == INVALID_SOCKET)
+        {
+            int nErr = errno;
+            LogToMonitor ("%s：创建套接字失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
+            goto error;
+        }
 
-    memset (& tAddr, 0, sizeof tAddr);
-    tAddr.sin_family      = AF_INET;
-    tAddr.sin_addr.s_addr = htonl (INADDR_ANY);
-    tAddr.sin_port        = htons ((unsigned short) * p->pPort);
+        if (setsockopt (pT->skt, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True) != 0)
+        {
+            int nErr = errno;
+            LogToMonitor ("%s：设置 SO_REUSEADDR 失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
+        }
 
-    if (bind (pT->skt, (struct sockaddr *) & tAddr, sizeof tAddr) != 0)
-    {
-        int nErr = errno;
-        LogToMonitor ("%s：绑定端口 %u 失败（%s，errno %d）", p->szName, * p->pPort,
-                      PalSvcErrText (nErr), nErr);
-        goto error;
+        memset (& tAddr, 0, sizeof tAddr);
+        tAddr.sin_family      = AF_INET;
+        tAddr.sin_addr.s_addr = htonl (INADDR_ANY);
+        tAddr.sin_port        = htons ((unsigned short) * p->pPort);
+
+        if (bind (pT->skt, (struct sockaddr *) & tAddr, sizeof tAddr) != 0)
+        {
+            int nErr = errno;
+            LogToMonitor ("%s：绑定端口 %u 失败（%s，errno %d）", p->szName, * p->pPort,
+                          PalSvcErrText (nErr), nErr);
+            goto error;
+        }
     }
 
     pT->gRunning = TRUE;

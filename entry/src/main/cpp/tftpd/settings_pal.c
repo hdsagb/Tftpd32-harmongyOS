@@ -107,6 +107,7 @@ static const struct PalKey tKeys [] =
     { KEY_REDUCE_PATH,          & sSettings.bReduceTFTPPath,        PAL_T_INT, 0 },
     { KEY_IGNORE_LASTBLOCK_ACK, & sSettings.bIgnoreLastBlockAck,    PAL_T_INT, 0 },
     { KEY_GUI_REMANENCE,        & sSettings.nGuiRemanence,          PAL_T_INT, 0 },
+    { KEY_IPv4,                 & sSettings.bIPv4,                  PAL_T_INT, 0 },
     { KEY_IPv6,                 & sSettings.bIPv6,                  PAL_T_INT, 0 },
     { KEY_PORT_OPTION,          & sSettings.bPortOption,            PAL_T_INT, 0 },
     { KEY_MCAST_ADDR,             sSettings.szMCastAddr,           PAL_T_STR, sizeof sSettings.szMCastAddr },
@@ -123,6 +124,11 @@ static const struct PalKey tKeys [] =
     { KEY_DHCP_DEFROUTER,        sParamDHCP.szGateway,      PAL_T_STR, sizeof sParamDHCP.szGateway },
     { KEY_DHCP_OPTION42,         sParamDHCP.szOpt42,        PAL_T_STR, sizeof sParamDHCP.szOpt42 },
     { KEY_DHCP_OPTION120,        sParamDHCP.szOpt120,       PAL_T_STR, sizeof sParamDHCP.szOpt120 },
+    /* 原版 GUI 只暴露第 1 组自定义选项（AddOptionNumber1/AddOptionValue1）；
+       2~10 组由 DHCPSaveConfig/DHCPReadConfig 按原版键名读写，界面不暴露 */
+    { KEY_DHCP_USER_OPTION_NB_1,    & sParamDHCP.t[0].nAddOption, PAL_T_INT, 0 },
+    { KEY_DHCP_USER_OPTION_VALUE_1,   sParamDHCP.t[0].szAddOption,
+                                    PAL_T_STR, sizeof sParamDHCP.t[0].szAddOption },
     { KEY_DHCP_DOMAINNAME,       sParamDHCP.szDomainName,   PAL_T_STR, sizeof sParamDHCP.szDomainName },
     { KEY_DHCP_LEASE_TIME,     & sParamDHCP.nLease,         PAL_T_INT, 0 },
     { KEY_PERS_LEASES,         & sSettings.bPersLeases,     PAL_T_INT, 0 },

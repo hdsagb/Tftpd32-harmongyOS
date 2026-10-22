@@ -12,3 +12,4 @@
 /.appanalyzer
 /reference/
 /tools/*.exe
+/signature/

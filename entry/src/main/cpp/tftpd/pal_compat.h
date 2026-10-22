@@ -45,7 +45,9 @@ typedef int LONG; typedef void *LPVOID; typedef const char *LPCSTR; typedef char
 typedef const void *LPCVOID;
 typedef void *HWND;          /* GUI 句柄：仅结构体占位（tftp_struct.h），永不解引用 */
 typedef void *HINSTANCE;     /* GUI 句柄：仅声明占位（custom.h GuiMain），永不解引用 */
+#ifndef _MSC_VER             /* MSVC 将 __int64 作为内建类型，不能重复 typedef（宿主测试用） */
 typedef long long __int64;
+#endif
 typedef int SOCKET;
 /* u_long 由 musl 的 sys/types.h 提供，此处不再重复定义（项目未使用该类型） */
 #define TRUE 1
@@ -194,6 +196,11 @@ BOOL   ReleaseMutex (HANDLE h);
 /* ---------- 服务启停（service_main.c） ---------- */
 int  TftpdServiceStart (void);
 void TftpdServiceStop  (void);
+
+/* ---------- TFTP 监听套接字（tftpd_main.c） ----------
+ * 按 Enable IPv4 / Enable IPv6 与 LocalIP 选择地址族并绑定，
+ * 供 service_main.c 启动 TFTP 服务线程时复用。 */
+SOCKET TftpBindLocalInterface (void);
 
 /* ---------- SYSTEMTIME（sntpd.c 使用） ---------- */
 typedef struct

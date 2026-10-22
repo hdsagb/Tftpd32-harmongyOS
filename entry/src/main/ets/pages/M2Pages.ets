@@ -1,4 +1,4 @@
-﻿import { TftpdService, SyslogMsg, DnsQuery, ClientState, DirEntry, DhcpLease } from '../services/TftpdService';
+import { TftpdService, SyslogMsg, DnsQuery, ClientState, DirEntry, DhcpLease } from '../services/TftpdService';
 
 // TftpdService 的事件缓存在静态数组中，ArkUI 不会自动追踪：
 // 各页签用 500ms 定时器把静态数组/对象快照到 @State，实现界面刷新。
@@ -258,6 +258,8 @@ export struct DhcpPage {
   @State lease: string = '2880';
   @State opt42: string = '';
   @State opt120: string = '';
+  @State optNb: string = '0';      // AddOptionNumber1（原版自定义选项，0 关闭）
+  @State optVal: string = '';      // AddOptionValue1
   @State port: string = '6700';
   @State persLeases: boolean = true;
   @State leases: DhcpLease[] = [];
@@ -292,6 +294,9 @@ export struct DhcpPage {
     if (l > 0) this.lease = l.toString();
     this.opt42 = TftpdService.getStr('Option42');
     this.opt120 = TftpdService.getStr('Option120');
+    const nb = TftpdService.getInt('AddOptionNumber1');
+    if (nb >= 0) this.optNb = nb.toString();
+    this.optVal = TftpdService.getStr('AddOptionValue1');
     const p = TftpdService.getInt('DhcpPort');
     if (p > 0) this.port = p.toString();
     const pl = TftpdService.getInt('PersistantLeases');
@@ -316,6 +321,8 @@ export struct DhcpPage {
     TftpdService.setInt('Lease (minutes)', parseInt(this.lease) || 2880);
     TftpdService.setStr('Option42', this.opt42.trim());
     TftpdService.setStr('Option120', this.opt120.trim());
+    TftpdService.setInt('AddOptionNumber1', parseInt(this.optNb) || 0);
+    TftpdService.setStr('AddOptionValue1', this.optVal.trim());
     TftpdService.setInt('DhcpPort', parseInt(this.port) || 6700);
     TftpdService.setInt('PersistantLeases', this.persLeases ? 1 : 0);
     const ok = TftpdService.save();
@@ -406,6 +413,16 @@ export struct DhcpPage {
         TextInput({ text: this.opt120 }).layoutWeight(1)
           .onChange((v: string) => { this.opt120 = v; })
       }.width('100%')
+      Row({ space: 8 }) {
+        Text('自定义选项').width(110)
+        TextInput({ text: this.optNb }).width(80).type(InputType.Number)
+          .onChange((v: string) => { this.optNb = v; })
+        TextInput({ text: this.optVal, placeholder: '选项值' }).layoutWeight(1)
+          .onChange((v: string) => { this.optVal = v; })
+      }.width('100%')
+      Text('自定义选项：左侧为选项编号（0 关闭），右侧为选项值；支持原版表达式如 192.168.1.%3、%s。' +
+        '编号 66 同时用作 TFTP 服务器地址（siaddr）。')
+        .fontSize(12).fontColor('#888')
       Row({ space: 8 }) {
         Text('服务端口').width(110)
         TextInput({ text: this.port }).width(100).type(InputType.Number)
