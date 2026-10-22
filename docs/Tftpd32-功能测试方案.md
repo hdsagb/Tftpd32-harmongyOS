@@ -419,6 +419,7 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | DH-03 | P2 | BootFile 下发 | 配置 BootFile | ACK 携带 file 字段与 siaddr |
 | DH-04 | P2 | 地址池耗尽 | PoolSize=1，两个客户端请求 | 第一个成功，第二个被拒/等待，行为同原版 |
 | DH-05 | P2 | 自定义选项 | AddOptionNumber=42 | ACK 携带 option 42 |
+| DH-06 | P2 | 自定义选项对齐（原版键名） | DHCP 页“自定义选项”填编号/值 → 保存并应用；再测编号 0 与编号 66 | `AddOptionNumber1`/`AddOptionValue1` 落盘；OFFER 携带对应选项；编号 0 不下发；编号 66 同时填 `siaddr`，界面可回填 |
 
 #### 6.10.1 执行记录（2026-10-21，DevEco 模拟器 Pura 90 Pro，回环单播）
 
@@ -431,6 +432,7 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | DH-03 | 配置 `BootFile=pxelinux.0` | OFFER/ACK 的 `file=pxelinux.0`；`siaddr=0.0.0.0`。与原版一致：原版 `bootpd.c` 仅在请求 `siaddr==INADDR_NONE` 时才填最近服务器地址，普通 DISCOVER（`siaddr=0`）同样返回 0；服务器地址通过 option 54/66 下发（66=10.0.2.15） | 通过（与原版行为一致） |
 | DH-04 | `PoolSize=10`，10 个 MAC 占满后再发 2 个 DISCOVER | 第 11/12 个客户端 3s 无应答（`timeout / no reply`），应用日志 `no more address or address previously allocated by another server`；随后 RELEASE 释放 .100、DECLINE 销毁 .102，释放出的地址立刻被新 DISCOVER 重新分配（yiaddr 分别 .102/.100） | 通过 |
 | DH-05 | 配置 `Option42=192.168.1.123`、`Option120=192.168.1.124` | OFFER/ACK 携带 option 42（len 4，192.168.1.123）与 option 120（len 5，子选项 0 + 4 字节地址）；未配置的 WINS 不下发 option 44（len 0） | 通过 |
+| DH-06 | 2026-10-22 UI 路径：DHCP 页自定义选项 `252/hello` → 改为 `253/world` → 保存并应用；再改 `0`；再改 `66/192.168.1.50` | 每次保存后 `tftpd32.ini` 写入 `AddOptionNumber1`/`AddOptionValue1` 对应值，状态栏“已保存，DHCP 服务已按新配置重启”；`m2tool2 dhcp discover` 应答：`253/world` 时出现 `opt 253 len 5` 且无 252；编号 0 时报文由 314B 缩为 307B、无自定义选项（值仍保留在 ini）；`66/192.168.1.50` 时 `siaddr=192.168.1.50` 且携带 `opt 66 len 12`（原有 `opt 66 len 9` 为服务器自身地址，与原版 `DHO_TFTP_SERVER` 固定项并存，行为一致） | 通过 |
 | 附加 | `dhcp release` / `dhcp decline` | RELEASE：租约保留但清空分配/续租时间，状态转“空闲”；DECLINE：校验 option 50 与租约地址一致后销毁条目，`Lease_NumLeases` 由 10 降为 9 | 通过（与原版 `ZeroAllocTime`/`DHCPDestroyItem` 逻辑一致） |
 
 说明与遗留：
@@ -685,4 +687,58 @@ TFTP 协议应答（`ERROR code/msg`）保持英文，符合 RFC1350 且与原�
 
 - 回归：debug/release 均 `BUILD SUCCESSFUL`；冷启动自动启动、TFTP 6900 监听与错误应答、日志中文提示、
   常驻通知降级提示均复测通过。
-- 仍阻塞（需真机 E2）：组播接收/ACK、DHCP 二层广播、A3 报文对拍、NF-05/NF-06、真机安装后签名与市场材料。
+- 仍阻塞（需真机 E2）：组播接收/ACK、DHCP 二层广播、A3 报文对拍、NF-05/NF-06、真机安装后签名与市场材料；
+  A1 的“启用 IPv4”界面开关已具备主机侧回归（§9.5），模拟器端 UI 实测已完成（见 §9.6）。
+
+### 9.5 A4 宿主单元测试（C 代码，无需真机）
+
+**目的**：把不依赖网络/设备的纯函数从“只能上设备验证”变为本地可回归，作为后续改动的门禁。
+
+- 工程：`entry/src/main/cpp/tests/host/`（独立 CMake 工程，不参与 HAP 构建；只编译 `bootpd_util.c`、`ip_pal.c`）。
+- 兼容层：`tests/host/compat/` 提供自包含 POSIX 头替身（不引入 Winsock，避免 Windows SDK 的
+  `HWND/HINSTANCE/SOCKET/pollfd` 与 `pal_compat.h` 的移植形状冲突）；`host_stubs.c` 提供配置读写、日志、
+  网络与目录遍历桩。
+- 运行：`powershell -ExecutionPolicy Bypass -File tools\run-host-tests.ps1`
+  （依赖 VS2022 + 自带 CMake，无设备要求；`-Clean` 可重配，`-Config Debug` 可切换配置）。
+- 执行记录：Release 构建通过，**77 条断言全部通过**，覆盖：
+  - `TranslateParam2Value`：`a`（IP 列表）、`s`（字符串与 `$IP$`）、`I/i/N/n`（整数与网络序）、
+    `b`（字节列表，空格/点/冒号分隔）、`x`（十六进制 1/2/4 字节）、无前缀原样回退
+  - `TranslateExp`：`$IP$`、`$ARCH$`（7→x64）、`$MAC$`、`$BootFileName$`
+  - `AddrInc`：常规递增、`.254/.255` 跳段、32 位回绕（`255.255.255.255` → 1，与原版 32 位 `unsigned long` 一致）
+  - `haddrtoa` / `atohaddr` 往返
+  - 租约池：排序/编号（`qsort` + `ReorderLeases`）、按 IP/MAC 双向查找、过期判定（`tRenewed=0` 判过期）、`FreeLeases` 回收
+  - 配置键（A1）：`Enable IPv4=0/1` 与 `Enable IPv6` 从 ini 正确落入 `sSettings`，`Pal_SetSettingInt/Pal_GetSettingInt`
+    按原版键名（含空格）读写一致，错误键名不误命中
+- 与上游一致性的两个确认点（均为原版固有行为，不是缺陷）：
+  - 16 位十六进制字段仍输出 4 字节：原版 `cvt[min(q-p,8)]` 的上限即 `cvt[8]=4`；适配版只拷贝 4 字节，
+    避免 LP64 下原版 `%lx` 写 8 字节造成越界。
+  - `TranslateExp` 固定写 `to[DHCP_FILE_LEN-1]`；真实调用传入 DHCP 报文内的大缓冲区，因此宿主测试缓冲区取 ≥128 字节。
+- 尚未覆盖（留待后续）：`bootpd.c` 的 `DHO_CUSTOM` 报文编码（依赖整个 DHCP 打包链）。
+
+### 9.6 B1/B2 设备端冒烟与 A1 实测记录（模拟器 E1）
+
+环境：`hdc list targets` → `127.0.0.1:5555`；应用包名 `com.example.myapplication`，测试模块 `entry_test`。
+
+**A1 启用 IPv4 实测（UI → ini → 监听地址族）**
+
+1. 设置页关闭“启用 IPv4”并点“保存配置” → `tftpd32.ini` 出现 `Enable IPv4=0`。
+2. `aa force-stop` + `aa start` 冷启动 → `netstat -an` 显示 `udp6 0 0 [::]:6900`（仅 IPv6 监听）。
+3. 重新开启并保存 → `Enable IPv4=1`；冷启动 → 恢复 `udp 0 0 0.0.0.0:6900`（双栈默认，与原版一致）。
+
+修复：`service_main.c` 的 `PalSvcStartOne` 原以 `socket(AF_INET)` + `bind(INADDR_ANY)` 预建监听套接字，
+使 `Enable IPv4/Enable IPv6` 与 `LocalIP` 设置全部失效（`tftpd_main.c` 的 `TftpBindLocalInterface` 从未被调用）。
+现 TH_TFTP 改为复用 `TftpBindLocalInterface`，由原版逻辑按 `Enable IPv4/IPv6` 选地址族、按 `LocalIP` 绑定；
+非 TFTP 服务（Syslog/SNTP/DNS/DHCP）保持原有 AF_INET 绑定。
+
+**B1/B2 冒烟（ohosTest + hypium）**
+
+- 构建：`hvigorw --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug assembleHap --no-daemon`
+  → `entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap`
+- 签名：`hap-sign-tool sign-app -mode localSign`（复用 `signature/` 内既有密钥与 profile）→ `signature/test-signed.hap`
+- 安装：`hdc install -r signature/test-signed.hap`
+- 执行：`hdc shell aa test -b com.example.myapplication -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 60000`
+- 结果：`Tests run: 5, Failure: 0, Error: 0, Pass: 5`
+  - `Tftpd32Smoke`: `B1_config_keys`（`Enable IPv4`/`TftpPort` 落盘与回读）、`B1_service_start`（启动日志含“服务已启动”与端口）、
+    `B2_loopback_rrq`（127.0.0.1 下载内容一致）、`B2_loopback_wrq`（上传落盘内容一致）
+  - `ActsAbilityTest`：工程模板自带用例
+- 说明：`entry/src/ohosTest/module.json5` 无需声明 `testRunner`，`aa test` 默认使用系统 `OpenHarmonyTestRunner`。
