@@ -182,8 +182,9 @@ char line [768];
         if (sSettings.szBaseDirectory[0] != 0 && stat (sSettings.szBaseDirectory, & st) != 0)
         {
             int RcMk = mkdir (sSettings.szBaseDirectory, 0755);
-            LogToMonitor ("PalSettings: mkdir <%s> returns %d (errno %d)",
-                          sSettings.szBaseDirectory, RcMk, errno);
+            if (RcMk != 0)
+                LogToMonitor ("PalSettings：创建根目录 <%s> 失败（errno %d）",
+                              sSettings.szBaseDirectory, errno);
         }
         if (pszEnv != NULL && stat (pszEnv, & st) == 0 && S_ISDIR (st.st_mode))
             lstrcpyn_pal (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory,
@@ -193,7 +194,7 @@ char line [768];
                           realpath (sSettings.szBaseDirectory, szFull) ? szFull : sSettings.szBaseDirectory);
         else
             getcwd (sSettings.szWorkingDirectory, sizeof sSettings.szWorkingDirectory);
-        LogToMonitor ("PalSettings: working directory <%s>", sSettings.szWorkingDirectory);
+        LogToMonitor ("PalSettings：工作目录 <%s>", sSettings.szWorkingDirectory);
     }
 
     /* —— 服务端口缺省兜底：无配置文件或旧配置缺少键时 Port 均为 0 —— */

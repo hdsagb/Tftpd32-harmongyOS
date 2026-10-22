@@ -41,6 +41,22 @@ static void *PalSvcTramp (void *param)
     return NULL;
 }
 
+/* D3：把常见 bind/socket 失败原因翻译成用户可读提示（日志页直接展示） */
+static const char *PalSvcErrText (int nErr)
+{
+    switch (nErr)
+    {
+        case EADDRINUSE:    return "端口已被占用";
+        case EACCES:        return "无权限绑定该端口（1024 以下为系统特权端口）";
+        case EADDRNOTAVAIL: return "本机没有该地址，请检查绑定网卡设置";
+        case ENETUNREACH:   return "网络不可达";
+        case EAFNOSUPPORT:  return "协议族不受支持";
+        case ENOBUFS:
+        case ENOMEM:        return "系统资源不足";
+        default:            return "未知错误";
+    }
+}
+
 static void PalSvcNotify (struct S_PalService *p, int status)
 {
     struct S_Chg_Service chg;
@@ -71,7 +87,7 @@ static int PalSvcStartOne (int i)
         pT->hEv = PalCreatePipeEvent ();
         if (pT->hEv == INVALID_HANDLE_VALUE)
         {
-            LogToMonitor ("%s: PalCreatePipeEvent failed", p->szName);
+            LogToMonitor ("%s：创建唤醒管道失败", p->szName);
             return FALSE;
         }
     }
@@ -79,12 +95,16 @@ static int PalSvcStartOne (int i)
     pT->skt = socket (AF_INET, SOCK_DGRAM, 0);
     if (pT->skt == INVALID_SOCKET)
     {
-        LogToMonitor ("%s: socket() failed (errno %d)", p->szName, errno);
+        int nErr = errno;
+        LogToMonitor ("%s：创建套接字失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
         goto error;
     }
 
     if (setsockopt (pT->skt, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True) != 0)
-        LogToMonitor ("%s: setsockopt SO_REUSEADDR failed (errno %d)", p->szName, errno);
+    {
+        int nErr = errno;
+        LogToMonitor ("%s：设置 SO_REUSEADDR 失败（%s，errno %d）", p->szName, PalSvcErrText (nErr), nErr);
+    }
 
     memset (& tAddr, 0, sizeof tAddr);
     tAddr.sin_family      = AF_INET;
@@ -93,20 +113,22 @@ static int PalSvcStartOne (int i)
 
     if (bind (pT->skt, (struct sockaddr *) & tAddr, sizeof tAddr) != 0)
     {
-        LogToMonitor ("%s: bind port %u failed (errno %d)", p->szName, * p->pPort, errno);
+        int nErr = errno;
+        LogToMonitor ("%s：绑定端口 %u 失败（%s，errno %d）", p->szName, * p->pPort,
+                      PalSvcErrText (nErr), nErr);
         goto error;
     }
 
     pT->gRunning = TRUE;
     if (pthread_create (& pT->hThread, NULL, PalSvcTramp, p) != 0)
     {
-        LogToMonitor ("%s: pthread_create failed", p->szName);
+        LogToMonitor ("%s：创建服务线程失败", p->szName);
         pT->gRunning = FALSE;
         goto error;
     }
     s_bSvcThreadStarted [i] = TRUE;
 
-    LogToMonitor ("%s service started on port %u", p->szName, * p->pPort);
+    LogToMonitor ("%s 服务已启动（端口 %u）", p->szName, * p->pPort);
     PalSvcNotify (p, 1 /*RUNNING*/);
     return TRUE;
 
@@ -149,7 +171,7 @@ static void PalSvcStopOne (int i)
     { closesocket (pT->skt);  pT->skt = INVALID_SOCKET; }
 
     pT->bInit = FALSE;
-    LogToMonitor ("%s service stopped", p->szName);
+    LogToMonitor ("%s 服务已停止", p->szName);
     PalSvcNotify (p, 0 /*STOPPED*/);
 }
 

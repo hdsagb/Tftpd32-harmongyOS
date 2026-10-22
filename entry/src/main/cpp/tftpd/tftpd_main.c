@@ -91,16 +91,16 @@ char               szIPv4 [MAXLEN_IPv6];
 		{
 			if (GetLastError() == WSAHOST_NOT_FOUND)
 			{
-	  		    SVC_ERROR ("Error %d\n%s\n\n"
-					   "Tftpd32 tried to bind the %s port\n"
-					   "to the interface %s\nwhich is not available for this host\n"
-					   "Either remove the %s service or suppress %s interface assignation",
+	  		    SVC_ERROR ("错误 %d（%s）\n\n"
+					   "TFTP 服务尝试绑定端口 %s\n"
+					   "到本机不存在的网卡地址 %s\n"
+					   "请修改“绑定网卡（LocalIP）”设置，或清除该项以监听全部接口",
  					    GetLastError (), LastErrorText (),
-						"tftp", sSettings.szTftpLocalIP, "tftp", sSettings.szTftpLocalIP); 
+						"tftp", sSettings.szTftpLocalIP); 
 			}
 			else
 			{
-				SVC_ERROR ("Error : Can't create socket\nError %d (%s)", GetLastError(), LastErrorText() );
+				SVC_ERROR ("错误：无法创建套接字\n错误 %d（%s）", GetLastError(), LastErrorText() );
 			}
 			return sListenSocket;
 		}
@@ -110,7 +110,7 @@ char               szIPv4 [MAXLEN_IPv6];
 	sListenSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 	if (sListenSocket == INVALID_SOCKET)
 	{
-			SVC_ERROR ("Error : Can't create socket\nError %d (%s)", GetLastError(), LastErrorText() );
+			SVC_ERROR ("错误：无法创建套接字\n错误 %d（%s）", GetLastError(), LastErrorText() );
 			freeaddrinfo (res);
 			return sListenSocket;
 	}
@@ -148,28 +148,28 @@ char               szIPv4 [MAXLEN_IPv6];
 	   switch (GetLastError ())
 	   {
 			case WSAEADDRNOTAVAIL :   // 10049
-	  		    SVC_ERROR ("Error %d\n%s\n\n"
-					   "Tftpd32 tried to bind the %s port\n"
-					   "to the interface %s\nwhich is not available for this host\n"
-					   "Either remove the %s service or suppress %s interface assignation",
+	  		    SVC_ERROR ("错误 %d（%s）\n\n"
+					   "TFTP 服务无法绑定端口 %s\n"
+					   "到本机不存在的网卡地址 %s\n"
+					   "请修改“绑定网卡（LocalIP）”设置，或清除该项以监听全部接口",
  					    GetLastError (), LastErrorText (),
-						"tftp", sSettings.szTftpLocalIP, "tftp", sSettings.szTftpLocalIP); 
+						"tftp", sSettings.szTftpLocalIP); 
 				break;
 			case WSAEINVAL :
 			case WSAEADDRINUSE :
-	  		    SVC_ERROR ("Error %d\n%s\n\n"
-					   "Tftpd32 can not bind the %s port\n"
-					   "an application is already listening on this port",
+	  		    SVC_ERROR ("错误 %d（%s）\n\n"
+					   "TFTP 服务无法绑定端口 %s\n"
+					   "该端口已被其它应用占用，请更换端口后重试",
  					    GetLastError (), LastErrorText (),
 						"tftp" );
 				break;
 			default :
-				SVC_ERROR ("Bind error %d\n%s",
+				SVC_ERROR ("绑定端口失败：错误 %d（%s）",
  					    GetLastError (), LastErrorText () );
 				break;
 	   } // switch error type
        closesocket (sListenSocket);
-	   LogToMonitor ("bind port to %s port %s failed\n", szAddr, szServ);
+	   LogToMonitor ("绑定地址 %s 端口 %s 失败\n", szAddr, szServ);
    }
    freeaddrinfo (res);
 return   Rc == INVALID_SOCKET ? Rc : sListenSocket;

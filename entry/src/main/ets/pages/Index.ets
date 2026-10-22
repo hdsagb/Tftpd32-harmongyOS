@@ -21,6 +21,9 @@ const KEY_SERVICES = 'Services';
 const BUNDLE_NAME = 'com.example.myapplication';
 const ABILITY_NAME = 'EntryAbility';
 
+// D2：同一进程内只自动启动一次（页面重建/通知授权弹窗不应重复拉起服务）
+let gAutoStarted: boolean = false;
+
 @Entry
 @Component
 struct Index {
@@ -65,6 +68,12 @@ struct Index {
     this.pruneTimer = setInterval(() => {
       if (TftpdService.pruneEnded()) this.transfers = [...TftpdService.transfers];
     }, 1000);
+    // D2：与原版一致，启动应用即启动已启用的服务；失败时保持“已停止”，由用户手动开启
+    this.running = TftpdService.isStarted();
+    if (!gAutoStarted) {
+      gAutoStarted = true;
+      this.autoStart();
+    }
   }
 
   aboutToDisappear(): void {
@@ -370,7 +379,29 @@ struct Index {
     });
   }
 
+  // 长时任务/通知被拒时的用户可读原因（D3）
+  private static bgErrText(code: number): string {
+    if (code === 9800005) return '系统未授予长时任务（该设备或模拟器不支持）';
+    if (code === 201) return '应用没有后台运行权限';
+    if (code === 1600004) return '通知权限未开启';
+    return `错误码 ${code}`;
+  }
+
+  private autoStart(): void {
+    if (this.running) return;
+    this.toggleService(true).catch((e: BusinessError) => {
+      this.running = false;
+      TftpdService.logs.push(`自动启动失败：${Index.bgErrText(e?.code ?? 0)}`);
+      this.logs = [...TftpdService.logs];
+    });
+  }
+
   private async toggleService(on: boolean): Promise<void> {
+    // 已启动时不重复申请长时任务/重启原生服务（页面可能被重建多次）
+    if (on && TftpdService.isStarted()) {
+      this.running = true;
+      return;
+    }
     this.applySettings();
     if (on) {
       try {
@@ -380,11 +411,19 @@ struct Index {
         // 手机端不支持 taskKeeping 时降级：仅前台可用 + 常驻通知提示
         const err = e as BusinessError;
         this.ctRunning = false;
-        TftpdService.logs.push(`提示：此设备不支持后台常驻（${err?.code ?? '?'}: ${err?.message ?? ''}），退后台后服务可能中断`);
+        TftpdService.logs.push(`提示：无法保持后台运行（${Index.bgErrText(err?.code ?? 0)}），` +
+          '退到后台后服务可能中断；可在“设置 > 电池”中允许本应用后台活动');
+      }
+      // 申请后台任务期间可能有第二个页面实例进入，落地前再确认一次
+      if (TftpdService.isStarted()) {
+        this.running = true;
+        return;
       }
       this.running = TftpdService.start();
       if (this.running && !this.ctRunning) this.publishRunningNotice(`服务运行中（端口 ${this.port}）`);
-      TftpdService.logs.push(this.running ? `TFTP 服务已启动（端口 ${this.port}）` : 'TFTP 服务启动失败（端口被占用？）');
+      if (!this.running) {
+        TftpdService.logs.push('TFTP 服务启动失败，请查看日志中的绑定失败原因（端口被占用或无权限）');
+      }
     } else {
       TftpdService.stop();
       this.running = false;

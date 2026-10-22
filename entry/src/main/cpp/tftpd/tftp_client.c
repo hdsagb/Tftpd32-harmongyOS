@@ -161,17 +161,17 @@ time_t tLast = 0;
     nPkt = (p->nBlkSize >= TFTP_MINSEGSIZE) ? p->nBlkSize : TFTP_SEGSIZE;
 
     if (! PalCliResolve (p->szHost, p->nPort, & srv, & nAddrLen))
-    { PalCliEmit ("error", 0, 0, 0, -1, "host not resolved", "");  return -1; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "主机名解析失败（网络不可达或 DNS 不可用）", "");  return -1; }
 
     s = socket (srv.ss_family, SOCK_DGRAM, 0);
     pBuf = (char *) malloc (MAXPKTSIZE);
     if (s == INVALID_SOCKET || pBuf == NULL)
-    { PalCliEmit ("error", 0, 0, 0, -1, "socket/malloc failed", "");  iRc = -1;  goto Exit; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "创建套接字或分配内存失败", "");  iRc = -1;  goto Exit; }
 
     hFile = CreateFile (p->szLocal, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                         FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
-    { PalCliEmit ("error", 0, 0, 0, -1, "cannot create local file", "");  iRc = -1;  goto Exit; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "无法创建本地文件（请检查存储权限或磁盘空间）", "");  iRc = -1;  goto Exit; }
 
     MD5Init (& ctx);
 
@@ -193,7 +193,7 @@ time_t tLast = 0;
         if (nRc <= 0)                                   /* 超时：重发最后一个已发包 */
         {
             if (++ nTimeOut > (int) sSettings.Retransmit)
-            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "timeout", "");  iRc = -1;  break; }
+            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "传输超时（对端无响应）", "");  iRc = -1;  break; }
             if (nLast > 0)
                 sendto (s, szLast, nLast, 0, (struct sockaddr *) & srv, nAddrLen);
             continue;
@@ -218,7 +218,7 @@ time_t tLast = 0;
 
         if (uOp == TFTP_ERROR)
         { PalCliEmit ("error", qwTotal, qwSize, uBlk, (int) ntohs ((unsigned short) tp->th_code),
-                      "server error", "");  iRc = -1;  break; }
+                      "服务器返回错误", "");  iRc = -1;  break; }
 
         if (uOp == TFTP_OACK && nCount == 0)
         {
@@ -242,7 +242,7 @@ time_t tLast = 0;
             struct tftphdr *tps = (struct tftphdr *) szLast;
 
             if (! WriteFile (hFile, tp->th_data, (DWORD) nData, & nWrt, NULL) || (int) nWrt != nData)
-            { PalCliEmit ("error", qwTotal, qwSize, uBlk, -1, "write failed", "");  iRc = -1;  break; }
+            { PalCliEmit ("error", qwTotal, qwSize, uBlk, -1, "写入本地文件失败", "");  iRc = -1;  break; }
 
             MD5Update (& ctx, (unsigned char *) tp->th_data, (unsigned) nData);
             qwTotal += nData;
@@ -296,23 +296,23 @@ struct stat st;
 time_t tLast = 0;
 
     if (stat (p->szLocal, & st) != 0)
-    { PalCliEmit ("error", 0, 0, 0, -1, "local file missing", "");  return -1; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "本地文件不存在", "");  return -1; }
     qwSize = (__int64) st.st_size;
 
     nPkt = (p->nBlkSize >= TFTP_MINSEGSIZE) ? p->nBlkSize : TFTP_SEGSIZE;
 
     if (! PalCliResolve (p->szHost, p->nPort, & srv, & nAddrLen))
-    { PalCliEmit ("error", 0, 0, 0, -1, "host not resolved", "");  return -1; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "主机名解析失败（网络不可达或 DNS 不可用）", "");  return -1; }
 
     s = socket (srv.ss_family, SOCK_DGRAM, 0);
     pBuf = (char *) malloc (MAXPKTSIZE);
     if (s == INVALID_SOCKET || pBuf == NULL)
-    { PalCliEmit ("error", 0, 0, 0, -1, "socket/malloc failed", "");  iRc = -1;  goto Exit; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "创建套接字或分配内存失败", "");  iRc = -1;  goto Exit; }
 
     hFile = CreateFile (p->szLocal, GENERIC_READ, 0, NULL, OPEN_EXISTING,
                         FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
-    { PalCliEmit ("error", 0, 0, qwSize, -1, "cannot open local file", "");  iRc = -1;  goto Exit; }
+    { PalCliEmit ("error", 0, 0, qwSize, -1, "无法打开本地文件", "");  iRc = -1;  goto Exit; }
 
     MD5Init (& ctx);
     nLast = PalCliBuildRequest (p, szLast, qwSize);
@@ -332,12 +332,12 @@ time_t tLast = 0;
             if (bFinalSent)                          /* 末块已发：重发直到收到最后 ACK */
             {
                 if (++ nFinalRetry > (int) sSettings.Retransmit)
-                { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "timeout on last ack", "");  iRc = -1;  break; }
+                { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "等待最后一帧确认超时", "");  iRc = -1;  break; }
                 sendto (s, szLast, nLast, 0, (struct sockaddr *) & srv, nAddrLen);
                 continue;
             }
             if (++ nTimeOut > (int) sSettings.Retransmit)
-            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "timeout", "");  iRc = -1;  break; }
+            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "传输超时（对端无响应）", "");  iRc = -1;  break; }
             sendto (s, szLast, nLast, 0, (struct sockaddr *) & srv, nAddrLen);
             continue;
         }
@@ -361,7 +361,7 @@ time_t tLast = 0;
 
         if (uOp == TFTP_ERROR)
         { PalCliEmit ("error", qwTotal, qwSize, uBlk,
-                      (int) ntohs ((unsigned short) tp->th_code), "server error", "");  iRc = -1;  break; }
+                      (int) ntohs ((unsigned short) tp->th_code), "服务器返回错误", "");  iRc = -1;  break; }
 
         if (bFinalSent)                              /* 等最后 ACK：只处理 ACK==nCount */
         {
@@ -401,7 +401,7 @@ SendBlock:
 
             nTimeOut = 0;
             if (! ReadFile (hFile, szLast + TFTP_DATA_HEADERSIZE, (DWORD) nPkt, & nWrt, NULL))
-            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "read failed", "");  iRc = -1;  break; }
+            { PalCliEmit ("error", qwTotal, qwSize, nCount, -1, "读取本地文件失败", "");  iRc = -1;  break; }
             nRead = (int) nWrt;
 
             nCount ++;
@@ -448,7 +448,7 @@ struct S_PalCli *p;
 pthread_t th;
 
     if (s_bClientBusy)
-    { PalCliEmit ("error", 0, 0, 0, -1, "client busy", "");  return FALSE; }
+    { PalCliEmit ("error", 0, 0, 0, -1, "客户端忙（已有传输在进行）", "");  return FALSE; }
 
     if (nBlkSize != 0 && (nBlkSize < TFTP_MINSEGSIZE || nBlkSize > TFTP_MAXSEGSIZE))
         nBlkSize = 0;                                     /* 0 = 默认 512 */

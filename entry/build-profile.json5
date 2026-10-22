@@ -5,6 +5,11 @@
       "path": "./src/main/cpp/CMakeLists.txt",
       "abiFilters": ["arm64-v8a", "x86_64"]
     },
+    "nativeLib": {
+      "filter": {
+        "excludes": ["**/libc++_shared.so"]
+      }
+    },
     "resOptions": {
       "copyCodeResource": {
         "enable": false

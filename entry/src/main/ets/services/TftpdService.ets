@@ -277,11 +277,23 @@ export class TftpdService {
     }
   }
 
+  // D2：服务已启动标志（原生侧 startService 会重建线程，重复调用会产生多条启动日志）
+  private static started: boolean = false;
+
+  static isStarted(): boolean {
+    return TftpdService.started;
+  }
+
   static start(): boolean {
-    return tftpd.startService();
+    if (TftpdService.started) return true;
+    const ok = tftpd.startService();
+    TftpdService.started = ok;
+    return ok;    // 启动成功日志由原生 service_main.c 输出（“TFTP 服务已启动（端口 N）”）
   }
 
   static stop(): void {
+    if (!TftpdService.started) return;
     tftpd.stopService();
+    TftpdService.started = false;
   }
 }

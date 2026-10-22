@@ -17,3 +17,9 @@ add_library(tftpd32 SHARED
     tftpd/registry_pal.c tftpd/bootpd.c tftpd/bootpd_util.c
     tftpd/libs/linked_list/linked_list.c tftpd/libs/md5/md5.c tftpd/libs/lasterr/lasterr.c)
 target_link_libraries(tftpd32 PUBLIC libace_napi.z.so)
+# 静态链接 libc++（本库仅 napi_init 用到 C++），配合 build-profile 排除 libc++_shared.so 以减小 HAP
+target_link_options(tftpd32 PRIVATE -static-libstdc++)
+# D1：release 构建去除符号表（-O2 已在 add_compile_options 中全局开启）
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(tftpd32 PRIVATE -s)
+endif()
