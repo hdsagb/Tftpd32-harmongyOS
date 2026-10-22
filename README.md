@@ -5,13 +5,19 @@ Tftpd32/Tftpd64 的鸿蒙（HarmonyOS）原生适配版。沿用原版的配置�
 
 ## 上游与许可证
 
-本项目是 [Tftpd32/Tftpd64](https://tftpd32.jounin.net/)（作者 Philippe Jounin）的衍生作品，
-遵循 **GNU GPLv2** 发布，完整许可证见 [LICENSE](LICENSE)。
+本项目是 [Tftpd32/Tftpd64](https://tftpd32.jounin.net/)（作者 Philippe Jounin）的衍生作品。
+上游采用 **EUPL-1.2**（European Union Public License，见上游 [readme.txt](https://github.com/PJO2/tftpd64) 与各源文件版权头），
+其作者声明与 GPLv2 兼容；本项目据此按 **GNU GPL v2（GPL-2.0-only）** 分发，完整许可证见 [LICENSE](LICENSE)。
 
-- 上游版权归 Philippe Jounin 所有；`entry/src/main/cpp/tftpd/` 下保留原作者版权头的文件均源自上游。
+- 上游版权归 Philippe Jounin 所有；`entry/src/main/cpp/tftpd/` 下保留原作者版权头（含
+  "source released under European Union Public License" 字样）的文件均源自上游。
 - 其余 `*_pal.c` / `*_pal.h` 等文件为 2026 年鸿蒙适配新增或改写，用于替换 Win32 API 与 GUI 消息层，
   协议逻辑保持与原版一致。
 - 本仓库即对应完整源码；分发二进制时须同时提供本仓库源码与构建说明（GPLv2 §3）。
+
+> 说明：上游仓库 `license.md` 是历史遗留的 GPLv2 全文（自 CodePlex 迁入后未再更新），
+> GitHub 因此显示 GPL-2.0 徽章；但上游 `readme.txt`（4.72 起的 license clarification）
+> 与各源文件头均明确为 EUPL。
 
 ## 构建
 
@@ -78,7 +84,7 @@ PC 上的 `tftpd32.ini` 可直接迁移。服务在后台通过长时任务保�
 | `ohos.permission.GET_NETWORK_INFO` | 枚举本机网卡地址，用于“绑定网卡（LocalIP）”与 DHCP 地址池配置 |
 | `ohos.permission.KEEP_BACKGROUND_RUNNING` | 服务运行期间申请长时任务，避免应用退到后台后套接字被系统回收 |
 
-**其它需公开的信息**：许可证 GNU GPLv2（见 [LICENSE](LICENSE)）；原作者 Philippe Jounin；
+**其它需公开的信息**：许可证本项目 GNU GPL v2（上游 EUPL-1.2，与 GPLv2 兼容，见 [LICENSE](LICENSE)）；原作者 Philippe Jounin；
 完整源码即本仓库；无付费内容、无广告、无第三方数据收集。
 
 ## 文档
