@@ -14,6 +14,7 @@ Tftpd32/Tftpd64 的鸿蒙（HarmonyOS）原生适配版。沿用原版的配置�
 - 其余 `*_pal.c` / `*_pal.h` 等文件为 2026 年鸿蒙适配新增或改写，用于替换 Win32 API 与 GUI 消息层，
   协议逻辑保持与原版一致。
 - 本仓库即对应完整源码；分发二进制时须同时提供本仓库源码与构建说明（GPLv2 §3）。
+- MD5 实现 derived from the **RSA Data Security, Inc. MD5 Message-Digest Algorithm**（见 `entry/src/main/cpp/tftpd/libs/md5/md5.c`）。
 
 > 说明：上游仓库 `license.md` 是历史遗留的 GPLv2 全文（自 CodePlex 迁入后未再更新），
 > GitHub 因此显示 GPL-2.0 徽章；但上游 `readme.txt`（4.72 起的 license clarification）

@@ -1,10 +1,10 @@
 {
   "name": "entry",
   "version": "1.0.0",
-  "description": "Please describe the basic information.",
+  "description": "Tftpd32 for HarmonyOS entry module (TFTP/Syslog/SNTP/DNS/DHCP)",
   "main": "",
   "author": "",
-  "license": "",
+  "license": "GPL-2.0-only",
   "dependencies": {}
 }
 

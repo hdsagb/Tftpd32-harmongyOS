@@ -1,3 +1,6 @@
+/* Derived from Tftpd32/Tftpd64 (Copyright (C) Philippe Jounin, EUPL-1.2),
+ * modified for HarmonyOS. This file is distributed under GPLv2 as part
+ * of the Tftpd32 for HarmonyOS project. */
 //////////////////////////////////////////////////////////
 // tftp_client.c —— TFTP 客户端（移植自 _gui/tftp_cli.c 的协议语义）
 // 原版基于 WSAAsyncSelect + 窗口定时器；此处改写为阻塞 poll() 状态机，

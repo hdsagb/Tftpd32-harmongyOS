@@ -1,3 +1,6 @@
+/* Derived from Tftpd32/Tftpd64 (Copyright (C) Philippe Jounin, EUPL-1.2),
+ * modified for HarmonyOS. This file is distributed under GPLv2 as part
+ * of the Tftpd32 for HarmonyOS project. */
 //////////////////////////////////////////////////////////
 // console_pal.c —— 替代 to_console.c（GUI 消息层 → NAPI 事件）
 // 同签名 SendMsgRequest / ReportNewTrf / LogToMonitor

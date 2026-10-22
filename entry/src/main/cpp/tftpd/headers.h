@@ -1,3 +1,6 @@
+/* Derived from Tftpd32/Tftpd64 (Copyright (C) Philippe Jounin, EUPL-1.2),
+ * modified for HarmonyOS. This file is distributed under GPLv2 as part
+ * of the Tftpd32 for HarmonyOS project. */
 //////////////////////////////////////////////////////////
 // Tftpd32 on HarmonyOS —— 聚合头（替代原 _common/headers.h）
 // 被 tftpd_main.c / tftpd_thread.c / tftpd_util.c / tftp_dbg.c 原样 include

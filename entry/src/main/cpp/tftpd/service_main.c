@@ -1,3 +1,6 @@
+/* Derived from Tftpd32/Tftpd64 (Copyright (C) Philippe Jounin, EUPL-1.2),
+ * modified for HarmonyOS. This file is distributed under GPLv2 as part
+ * of the Tftpd32 for HarmonyOS project. */
 //////////////////////////////////////////////////////////
 // service_main.c —— 表驱动的多服务管理器
 // 替代原 start_threads.c 的 TFTP 部分：TFTP / Syslog / SNTP / DNS

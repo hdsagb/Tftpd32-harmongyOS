@@ -1,6 +1,6 @@
 {
   "modelVersion": "26.0.0",
-  "description": "Please describe the basic information.",
+  "description": "Tftpd32 for HarmonyOS - HarmonyOS native port of Tftpd32/Tftpd64 (TFTP/Syslog/SNTP/DNS/DHCP server), GPL-2.0-only.",
   "dependencies": {
     "libtftpd32.so": "file:./entry/src/main/cpp/types/libtftpd32"
   },
