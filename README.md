@@ -55,4 +55,5 @@ java -jar "<SDK>\default\openharmony\toolchains\lib\hap-sign-tool.jar" sign-app 
 
 - [HarmonyOS 适配方案](docs/Tftpd32-HarmonyOS适配方案.md)
 - [功能测试方案](docs/Tftpd32-功能测试方案.md)
+- [真机测试清单](docs/Tftpd32-真机测试清单.md)
 - [M3/M4 计划](docs/superpowers/plans/2026-10-21-tftpd32-m3-m4-plan.md)
