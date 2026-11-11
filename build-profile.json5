@@ -1,12 +1,11 @@
 {
   "app": {
-    "signingConfigs": [],
     "products": [
       {
         "name": "default",
         "signingConfig": "default",
         "targetSdkVersion": "26.0.0",
-        "compatibleSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.1.0(23)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
@@ -18,10 +17,25 @@
     ],
     "buildModeSet": [
       {
-        "name": "debug",
+        "name": "debug"
       },
       {
         "name": "release"
+      }
+    ],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/tftpd32-HS.p12",
+          "storePassword": "0000001B5B4377EF8D13C19518B5D59CF86A5BD4A60D7B9F818C03EA460B8A14FBB87B7FE3FBA9159CC1D6",
+          "keyAlias": "t32",
+          "keyPassword": "0000001B7DB0EF654DC8ADC4385CCDEE7D6C7E6EFFE3AF004B48C889F1B5E100F6600E8F43CDD79AE38181",
+          "signAlg": "SHA256withECDSA",
+          "profile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/T32-testRelease.p7b",
+          "certpath": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/tftpd32-HS.cer"
+        }
       }
     ]
   },

@@ -137,7 +137,8 @@ static int TftpSendTrfPacket (struct LL_TftpInfo *pTftp, const char *pBuf, int n
 struct sockaddr_in sa;
     if (pTftp->c.bMCast && pTftp->r.sktMcast != INVALID_SOCKET && TftpMcastAddress (& sa))
         return (int) sendto (pTftp->r.sktMcast, pBuf, nLen, 0, (struct sockaddr *) & sa, sizeof sa);
-    return (int) send (pTftp->r.skt, pBuf, nLen, 0);
+    // 传输 socket 保持 unconnected（见主循环 socket 创建处注释），单播一律显式 sendto 指定对端
+    return (int) sendto (pTftp->r.skt, pBuf, nLen, 0, (struct sockaddr *) & pTftp->b.from, sizeof pTftp->b.from);
 } // TftpSendTrfPacket
 
 // 组播传输的 ACK 可能回到 OACK 的单播端口，也可能回到 DATA 的组播源端口，两者都尝试。
@@ -234,6 +235,10 @@ struct errmsg *pe;
 #if (defined DEBUG || defined DEB_TEST)
         BinDump (pTftp->b.buf, length, "NAK:");
 #endif
+    // D8：组播模式下 ERROR 仍单播回发起端（sendto 显式指定对端地址，
+    // 传输 socket 保持 unconnected），否则同组的其它客户端会被一并打断
+    if (pTftp->c.bMCast)
+        return (int) sendto (pTftp->r.skt, pTftp->b.buf, length, 0, (struct sockaddr *) & pTftp->b.from, sizeof pTftp->b.from) != length ? -1 : 0;
     return TftpSendTrfPacket (pTftp, pTftp->b.buf, length) != length ? -1 : 0;
 } // nak
 
@@ -362,7 +367,10 @@ int       Rc;
 	      case AF_INET6 : (* (struct sockaddr_in6 *) & in).sin6_port = htons ((short) nPort);
 					break;
 	  } // switch
-	  Rc = bind ( s, (struct sockaddr *)  & in, sizeof (in) );
+	  // bind 长度按地址族取精确长度（sockaddr_in / sockaddr_in6），
+	  // 不使用 sizeof(SOCKADDR_STORAGE)（过大且非规范）
+	  Rc = bind ( s, (struct sockaddr *)  & in,
+	              in.ss_family == AF_INET6 ? sizeof (struct sockaddr_in6) : sizeof (struct sockaddr_in) );
 	}
 	//     range set     highest not reach       error  is address in use
 	while (nPort!=0  &&  nPort++<nHigh    &&    Rc!=0 && GetLastError()==WSAEADDRINUSE);
@@ -744,8 +752,8 @@ int Rc;
  		     Rc = UdpSend (  pTftp->c.nOAckPort, 
 							(struct sockaddr *) & pTftp->b.from, sizeof pTftp->b.from, 
 							pTftp->b.ackbuf, pTftp->c.dwBytes);
-		else // use file transfer socket 
-			 Rc = send (pTftp->r.skt, pTftp->b.ackbuf, pTftp->c.dwBytes , 0);
+		else // use file transfer socket
+			 Rc = TftpSendTrfPacket (pTftp, pTftp->b.ackbuf, pTftp->c.dwBytes);
         if (Rc<0   || (unsigned) Rc != pTftp->c.dwBytes )
         {
 			Rc = GetLastError ();
@@ -844,6 +852,7 @@ return Rc;
 static int TftpSendFile (struct LL_TftpInfo *pTftp)
 {
 int Rc;
+int nTimeOutSeen = 0;    // D7：已处理过的超时次数（只在计数增长时回退一次发送窗口）
 struct tftphdr *tp;
 LARGE_INTEGER liPos;     // current pos of file pointer
 LARGE_INTEGER liTftpPos = { 0 }; // pos of file pointer according to protocol
@@ -876,7 +885,13 @@ LARGE_INTEGER liNul = { 0 };
     do
     {
          // On Timeout:  cancel anticipation window
-         if (pTftp->c.nTimeOut > 0)  pTftp->c.nLastToSend = pTftp->c.nCount;
+         // D7：只在超时计数真正增长时回退一次窗口。组播回环包会让 select 立即返回并被丢弃，
+         // 若仍按 nTimeOut>0 每轮回退，同一超时周期内会连发重传直至 MAXRETRIES。
+         if (pTftp->c.nTimeOut > nTimeOutSeen)
+         {
+             nTimeOutSeen = pTftp->c.nTimeOut;
+             pTftp->c.nLastToSend = pTftp->c.nCount;
+         }
 
          ////////////////////////
          //   Send blocks #Count to #Count+window
@@ -952,6 +967,7 @@ LARGE_INTEGER liNul = { 0 };
                   {
                         pTftp->st.dwTotalTimeOut += pTftp->c.nTimeOut;
                         pTftp->c.nTimeOut = 0;
+                        nTimeOutSeen = 0;   // D7：超时计数归零后，下一轮超时仍需回退一次窗口
                         pTftp->c.nRetries = 0 ;
                         if (pTftp->c.nCount!=0)  // do not count OACK data block
                                 pTftp->st.qwTotalBytes += pTftp->c.dwBytes;  // set to 0 on error
@@ -1044,7 +1060,7 @@ struct tftphdr *tp;
    {
       tp->th_opcode = htons (TFTP_ACK);
       tp->th_block  = 0;
-         Rc = send (pTftp->r.skt, pTftp->b.ackbuf, TFTP_ACK_HEADERSIZE, 0);
+         Rc = TftpSendTrfPacket (pTftp, pTftp->b.ackbuf, TFTP_ACK_HEADERSIZE);
          if (Rc != (int) TFTP_ACK_HEADERSIZE)
                 return TftpSysError (pTftp, EUNDEF, "send");
     } // ACK to send
@@ -1124,7 +1140,7 @@ ntohs(tp->th_block), pTftp->c.nCount, pTftp->st.dwTotalBytes, pTftp->c.nRetries)
        tp = (struct tftphdr *) pTftp->b.ackbuf;
        tp->th_opcode  = htons ((unsigned short) TFTP_ACK);
         tp->th_block   = htons ((unsigned short) pTftp->c.nCount);
-     send (pTftp->r.skt, pTftp->b.ackbuf, TFTP_ACK_HEADERSIZE, 0);
+     TftpSendTrfPacket (pTftp, pTftp->b.ackbuf, TFTP_ACK_HEADERSIZE);
 
  } // do
     while (     pTftp->c.dwBytes==pTftp->s.dwPacketSize
@@ -1174,7 +1190,8 @@ BOOL             bSuccess;
          Rc = WaitForSingleObject(pTftp->tm.hEvent,INFINITE);
          LogToMonitor ("permanent thread signalled %d (%d)\n", Rc, GetLastError());
      }
-     if ( ! tThreads [TH_TFTP].gRunning ) break;
+     if ( ! tThreads [TH_TFTP].gRunning )
+     { LogToMonitor ("gRunning false, permanent thread exits\n"); break; }
 
      //////////////////////////////////
      // Read the Request and prepare socket for Reply
@@ -1210,14 +1227,13 @@ BOOL             bSuccess;
 		  Rc = GetLastError ();
           LOG (0, "Error : bind returns %d: <%s>", Rc, LastErrorText());
      }
-     else if ( (Rc=connect(pTftp->r.skt, (struct sockaddr *) & pTftp->b.from, sizeof pTftp->b.from)) != 0 )
-     {
-		  Rc = GetLastError ();
-          LOG (0, "Error : connect returns %d: <%s>", Rc, LastErrorText());
-          Sleep (1000);
-     }
          //////////////////////////////////
          // Parse the RRQ/WRQ request
+         // HarmonyOS 适配：传输 socket 保持 unconnected——单播发送用
+         //  显式 sendto(&pTftp->b.from)，接收用 recv()（该内核允许在
+         //  unconnected UDP socket 上 recv）。
+         //  注：早期实测的「出向帧丢失」经 R8 复核最终定位为测试网络过滤与
+         //  PC 防火墙对 TFTP 非对称应答的拦截，非内核缺陷
          /////////////////////////////////
      else if ( (Rc = DecodConnectData (pTftp)) !=  CNX_FAILED )
      {struct sockaddr_storage s_in;

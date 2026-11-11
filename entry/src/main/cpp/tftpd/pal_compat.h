@@ -196,6 +196,7 @@ BOOL   ReleaseMutex (HANDLE h);
 /* ---------- 服务启停（service_main.c） ---------- */
 int  TftpdServiceStart (void);
 void TftpdServiceStop  (void);
+const char *PalSvcErrText (int nErr);   /* bind/socket 失败的 errno → 中文原因 */
 
 /* ---------- TFTP 监听套接字（tftpd_main.c） ----------
  * 按 Enable IPv4 / Enable IPv6 与 LocalIP 选择地址族并绑定，

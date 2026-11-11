@@ -28,6 +28,10 @@ int    PalDhcpLeasesJson   (char *szOut, int nOut);   /* bootpd.c：租约表 JS
 /* ---------- 线程安全发射器：worker 线程 → ArkTS 主线程 ---------- */
 static napi_threadsafe_function g_tsf = nullptr;
 
+/* 事件队列上限：应用退到后台时主线程事件回调会被节流，
+   队列必须有界，否则 EmitMsg 会在原生堆无界堆积；满则丢弃（日志/统计可容忍丢帧） */
+#define TFTPD_EVENT_QUEUE_MAX 256
+
 struct EmitMsg { char type[16]; char json[1024]; };
 
 static void EmitterTramp (const char *szType, const char *szJson)
@@ -38,7 +42,10 @@ static void EmitterTramp (const char *szType, const char *szJson)
     memset (m, 0, sizeof *m);
     strncpy (m->type, szType, sizeof m->type - 1);
     strncpy (m->json, szJson, sizeof m->json - 1);
-    napi_call_threadsafe_function (g_tsf, m, napi_tsfn_nonblocking);
+    /* nonblocking 模式下队列满返回 napi_queue_full、队列关闭返回 napi_closing，
+       两者都由调用方负责释放消息，否则每次丢弃都会泄漏一个 EmitMsg */
+    if (napi_call_threadsafe_function (g_tsf, m, napi_tsfn_nonblocking) != napi_ok)
+        delete m;
 }
 
 static void CallJs (napi_env env, napi_value jsCb, void * /*ctx*/, void *data)
@@ -63,7 +70,7 @@ static napi_value SetEventCb (napi_env env, napi_callback_info info)
     if (g_tsf != nullptr)  napi_release_threadsafe_function (g_tsf, napi_tsfn_abort);
     napi_value name;
     napi_create_string_utf8 (env, "tftpdEvent", NAPI_AUTO_LENGTH, & name);
-    napi_create_threadsafe_function (env, argv[0], nullptr, name, 0, 1, nullptr,
+    napi_create_threadsafe_function (env, argv[0], nullptr, name, TFTPD_EVENT_QUEUE_MAX, 1, nullptr,
                                      nullptr, nullptr, CallJs, & g_tsf);
     Pal_SetEmitter (EmitterTramp);
     return nullptr;

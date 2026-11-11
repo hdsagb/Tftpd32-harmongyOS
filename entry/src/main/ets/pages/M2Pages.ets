@@ -24,7 +24,7 @@ export struct SyslogPage {
       Row() {
         Text('Syslog 服务器').fontSize(20).fontWeight(FontWeight.Bold)
         Blank()
-        Text('端口 ' + TftpdService.getStr('SyslogPort')).fontSize(14).fontColor('#888')
+        Text('端口 ' + (TftpdService.getInt('SyslogPort') || 5140)).fontSize(14).fontColor('#888')
       }.width('100%').padding(12)
       List({ space: 4 }) {
         ForEach(this.msgs, (m: SyslogMsg) => {
@@ -45,7 +45,7 @@ export struct SntpPage {
   build() {
     Column({ space: 12 }) {
       Text('SNTP 服务器').fontSize(20).fontWeight(FontWeight.Bold)
-      Text('端口 ' + TftpdService.getStr('SntpPort')).fontSize(14).fontColor('#888')
+      Text('端口 ' + (TftpdService.getInt('SntpPort') || 1230)).fontSize(14).fontColor('#888')
       Text('服务开关位于「设置」页签。客户端发送 NTP v3 请求（mode=3）即可获得应答。')
         .fontSize(14).fontColor('#666')
     }.width('100%').height('100%').padding(24).alignItems(HorizontalAlign.Start)
@@ -76,7 +76,7 @@ export struct DnsPage {
       Row() {
         Text('DNS 服务器').fontSize(20).fontWeight(FontWeight.Bold)
         Blank()
-        Text('端口 ' + TftpdService.getStr('DnsPort')).fontSize(14).fontColor('#888')
+        Text('端口 ' + (TftpdService.getInt('DnsPort') || 5300)).fontSize(14).fontColor('#888')
       }.width('100%')
       Text('hosts.txt（每行：主机名 IPv4 IPv6，缺省用 -）').fontSize(12).fontColor('#666')
       TextArea({ text: this.hosts })

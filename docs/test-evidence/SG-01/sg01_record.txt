@@ -1,0 +1,54 @@
+SG-01 正式签名与覆盖升级 —— 真机执行记录（2026-11-11）
+
+环境：HUAWEI MateBook Pro (HAD-W32) / HarmonyOS 6.1.0.117；设备 192.168.10.128（hdc 无线 42217）；PC 192.168.10.104。
+签名材料：AGC 发布证书 tftpd32-HS.cer + tftpd32-HS.p12（keyAlias=t32，CN=张成岚(2059363319311009985),Release，2026-11-11~2029-11-11）
+         + 内部测试 profile signature\T32-testRelease.p7b（AGC「指定设备发布」类型）。
+profile 验证（DER 内 JSON 明文）：type=release；distribution-type=internaltesting；
+  bundle-name=com.example.tftpd32harmongyOS；app-identifier=6917621457942072563；
+  device-ids 含本机 UDID 尾号 …DFFF1；内嵌证书 CN=张成岚(2059363319311009985),Release。
+build-profile.json5：signingConfigs.default.profile → signature/T32-testRelease.p7b（其余不变）。
+
+背景：此前 hdc install 报 9568322 —— 发布 profile distributionType=app_gallery 仅允许市场渠道，
+  侧载被拒；内部测试 profile（internaltesting）解除该限制，install bundle successfully。
+
+── ① v1 首装（versionCode 1000000）──
+hvigor release 构建签名：entry-default-signed.hap（1,104,729 bytes，2026-11-11 13:06）。
+hdc install → install bundle successfully（首装，firstInstallTime=1794373575820 → CST 13:06）。
+aa start -a EntryAbility -b com.example.tftpd32harmongyOS → start ability successfully。
+
+── ② 升级前状态制造 ──
+- ini 配置：设置页配置 DHCP 地址池（起始 192.168.10.200 / 掩码 255.255.255.0 / 池大小 5）并保存。
+  备注：此前 dhcp_probe no OFFER 根因为配置未点保存；保存后立即出租约。
+- TFTP 基准文件：sg01_base.bin（1024B 随机）PUT 至设备 files 根目录（put_client.py，DATA 须发
+  服务器会话 TID——ACK0 源地址；发主端口被回 ERROR 4 Illegal TFTP operation，系客户端实现问题）；
+  GET 回读 1024B，MD5=22755BF4F31F13CF5B5FF8199186E5A9 双端一致。
+- DHCP 租约：dhcp_probe.py 双 MAC 全流程 DISCOVER→OFFER→REQUEST→ACK：
+  [A] 02:11:22:33:44:88 → 192.168.10.200（opt51=172800s=48h，opt54=192.168.10.128）
+  [B] 02:11:22:33:44:99 → 192.168.10.201
+  （指南步骤①的 sg01_ini_before.txt 因 release 包不可调试无法导出，ini 结构参考
+  sg01_old_debug_ini_backup.txt，保留性改由行为证据验证，见④。）
+
+── ③ v2 覆盖升级（versionCode 1000001）──
+AppScope/app.json5：versionCode 1000000 → 1000001。
+hvigor release：BUILD SUCCESSFUL in 42s（SignHap 完成）→ tools/build-install.ps1 自动
+  hdc install -r → install bundle successfully（AppMod finish）。
+bm dump -n com.example.tftpd32harmongyOS：
+  "versionCode": 1000001；
+  "appIdentifier": "6917621457942072563"（与 profile 一致、升级前后不变——沙箱数据保留前提）；
+  "firstInstallTime": 1794373575820（仍为 v1 首装时刻——覆盖升级而非卸装重装）。
+
+── ④ 升级后行为验证（release 包不可调试，shell 无法读 /data/app/el2 沙箱，
+      指南步骤④「ini 逐项 diff」以三重行为证据替代）──
+1) 服务自动恢复：aa start 后未手动操作，
+   /proc/net/udp6 → :: :1AF4 (6900 TFTP)  pid 20020157
+   /proc/net/udp  → 0.0.0.0:1A2C (6700 DHCP) pid 20020157
+   （v1 首装后 DHCP 需手动开启；升级重启后双服务按 ini 服务开关自动拉起 → ini 保留。）
+2) TFTP 基准文件保留：GET sg01_base.bin → 3 blocks, 1024 bytes,
+   MD5=22755BF4F31F13CF5B5FF8199186E5A9 与升级前一致 → BaseDirectory 与 files 目录保留。
+3) DHCP 租约保留：dhcp_probe.py 同双 MAC 重放，同 IP 重分得：
+   [A] 02:11:22:33:44:88 → 192.168.10.200（OFFER+ACK）
+   [B] 02:11:22:33:44:99 → 192.168.10.201（OFFER+ACK）
+   → Lease_* 持久租约保留（非重新顺序分配，而是按 MAC 匹配历史租约）。
+
+结论：安装成功 / 覆盖升级（1000000→1000001）/ ini 与 Lease_* 保留 / 服务可启动且传输正常
+      —— SG-01 三判据全部成立。

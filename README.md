@@ -20,6 +20,14 @@ Tftpd32/Tftpd64 的鸿蒙（HarmonyOS）原生适配版。沿用原版的配置�
 > GitHub 因此显示 GPL-2.0 徽章；但上游 `readme.txt`（4.72 起的 license clarification）
 > 与各源文件头均明确为 EUPL。
 
+## 商标与图标声明
+
+- 应用图标为本项目自制（绿色渐变背景 + 双向传输箭头），未复制上游 `images/tftpd32_logo.png` 或任何
+  Tftpd32/Tftpd64 品牌素材。
+- 上游许可证（EUPL-1.2 / GPLv2）仅授予版权层面的复制、修改、分发许可，**不包含商标授权**。
+  本应用为独立开发的第三方适配版本，不代表原作者 Philippe Jounin，也未获得其品牌背书。
+- 应用内的「设置 > 关于」已展示同样的声明。
+
 ## 构建
 
 依赖 DevEco Studio（HarmonyOS SDK 6.1.1(24) 及以上）。

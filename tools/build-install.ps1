@@ -1,4 +1,4 @@
-﻿﻿# build-install.ps1 —— 一键构建 + 签名 + 安装
+﻿# build-install.ps1 —— 一键构建 + 签名 + 安装
 #
 # 用法（在项目根目录执行）：
 #   powershell -ExecutionPolicy Bypass -File tools\build-install.ps1
@@ -90,6 +90,19 @@ $unsigned = Get-ChildItem $outDir -Filter '*-unsigned.hap' -ErrorAction Silently
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $unsigned) { Write-Err "未找到未签名 HAP：$outDir" }
 
+# hvigor 按 build-profile.json5 的签名配置还会产出已签名 HAP（DevEco 自动签名，含本机设备 UDID，设备信任）。
+# 优先安装它；仅在没有自动签名产物时才走下方本地自签。
+# 本地自签用 SDK 的 OpenHarmony.p12 重签 profile，部分设备会以 9568257 fail to verify pkcs7 file 拒绝安装。
+$hvigorSigned = Get-ChildItem $outDir -Filter '*-signed.hap' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($hvigorSigned -and $hvigorSigned.LastWriteTime -lt $unsigned.LastWriteTime) { $hvigorSigned = $null }
+$SignedHap = if ($hvigorSigned) { $hvigorSigned.FullName } else { Join-Path $SignDir 'entry-signed.hap' }
+
+if ($hvigorSigned) {
+    Write-Step "使用 hvigor 自动签名产物（跳过本地自签）"
+    Write-Host "  $($hvigorSigned.Name)"
+}
+else {
 # ---------- 4. 准备签名材料（首次生成，之后复用私钥） ----------
 Write-Step "准备签名材料"
 $AppP12   = Join-Path $SignDir 'tftpd32.p12'
@@ -184,6 +197,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $SignedHap)) { Write-Err "sign-app �
 $uart = [math]::Round((Get-Item $unsigned.FullName).Length / 1KB, 1)
 $sart = [math]::Round((Get-Item $SignedHap).Length / 1KB, 1)
 Write-Host "  未签名 $uart KB → 已签名 $sart KB"
+}
 
 if ($NoInstall) {
     Write-Step "完成（-NoInstall：未安装）"

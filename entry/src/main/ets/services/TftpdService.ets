@@ -58,15 +58,18 @@ export class TftpdService {
 
   static async init(ctx: Context): Promise<void> {
     TftpdService.cfgPath = `${ctx.filesDir}/tftpd32.ini`;
-    // TFTP 根目录：沙箱内固定目录（对齐原版开箱即用；用户选目录授权放里程碑3）
-    TftpdService.baseDir = `${ctx.filesDir}/tftpboot`;
+    tftpd.setConfigPath(TftpdService.cfgPath);
+    tftpd.readSettings();     // 启动即恢复已保存配置，供界面回填
+    // D12：TFTP 根目录跟随 ini 的 BaseDirectory；未配置（空或默认 "."）时回落到沙箱默认目录
+    const cfgDir = TftpdService.getStr('BaseDirectory');
+    TftpdService.baseDir = (cfgDir !== '' && cfgDir !== '.') ? cfgDir : `${ctx.filesDir}/tftpboot`;
+    // 同步到设置缓存：StartService 会重算工作目录，需与界面根目录一致
+    if (cfgDir !== TftpdService.baseDir) TftpdService.setStr('BaseDirectory', TftpdService.baseDir);
     try {
       fs.accessSync(TftpdService.baseDir);
     } catch (_e) {
       try { fs.mkdirSync(TftpdService.baseDir); } catch (_e2) { /* 已存在 */ }
     }
-    tftpd.setConfigPath(TftpdService.cfgPath);
-    tftpd.readSettings();     // 启动即恢复已保存配置，供界面回填
     tftpd.setEventCallback((type: string, json: string) => TftpdService.onEvent(type, json));
   }
 

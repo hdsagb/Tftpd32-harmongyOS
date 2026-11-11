@@ -56,8 +56,8 @@ void ConsoleTftpGetStatistics (void)
 SOCKET TftpBindLocalInterface (void)
 {
 SOCKET             sListenSocket = INVALID_SOCKET;
-int                Rc;
-ADDRINFO           Hints, *res;
+int                Rc, nPass, nErr = 0;
+ADDRINFO           Hints, *res, *ai;
 char               szServ[NI_MAXSERV];
 char               szIPv4 [MAXLEN_IPv6];
 
@@ -106,73 +106,88 @@ char               szIPv4 [MAXLEN_IPv6];
 		}
    }
 	// bind it to the port we passed in to getaddrinfo():
+	//
+	// D5/D6：双栈时优先监听 IPv6 并关闭 IPV6_V6ONLY（同一 socket 同时接受 IPv4），
+	// IPv6 绑定失败再回落 IPv4；仅监听 IPv6 时开启 IPV6_V6ONLY，拒绝 v4-mapped 连接。
+	for (nPass = 0;  nPass < 2  &&  sListenSocket == INVALID_SOCKET;  nPass ++)
+	{int nFamily = (nPass == 0) ? AF_INET6 : AF_INET;
 
-	sListenSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-	if (sListenSocket == INVALID_SOCKET)
-	{
-			SVC_ERROR ("错误：无法创建套接字\n错误 %d（%s）", GetLastError(), LastErrorText() );
-			freeaddrinfo (res);
-			return sListenSocket;
-	}
+		if (Hints.ai_family != AF_UNSPEC  &&  Hints.ai_family != nFamily)  continue;
 
+		for (ai = res;  ai != NULL  &&  sListenSocket == INVALID_SOCKET;  ai = ai->ai_next)
+		{char szAddr[MAXLEN_IPv6] = "unknown", szPort[NI_MAXSERV] = "unknown";
 
-   	// REUSEADDR option in order to allow thread to open 69 port
-	if (sSettings.bPortOption==0)
-	{int True=1;
-		Rc = setsockopt (sListenSocket, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True);
-		LogToMonitor (Rc==0 ? "Port %d may be reused" : "setsockopt error", sSettings.Port);
-	}
+			if (ai->ai_family != nFamily)  continue;
 
-	// if family is AF_UNSPEC, allow both IPv6 and IPv4 by disabling IPV6_ONLY (necessary since Vista)
-	// http://msdn.microsoft.com/en-us/library/windows/desktop/bb513665(v=vs.85).aspx
-	if (sSettings.bIPv4 && sSettings.bIPv6)
-	{int False=0;
-	   Rc = setsockopt(sListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, (char*)& False, sizeof False );
-	   // do not check Rc, since XP does not support this settings -> error
-	}
+			sListenSocket = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+			if (sListenSocket == INVALID_SOCKET)
+			{
+				nErr = GetLastError ();
+				SVC_ERROR ("错误：无法创建套接字\n%s（错误 %d）", PalSvcErrText (nErr), nErr);
+				continue;
+			}
 
+			// REUSEADDR option in order to allow thread to open 69 port
+			if (sSettings.bPortOption==0)
+			{int True=1;
+				Rc = setsockopt (sListenSocket, SOL_SOCKET, SO_REUSEADDR, (char *) & True, sizeof True);
+				LogToMonitor (Rc==0 ? "Port %d may be reused" : "setsockopt error", sSettings.Port);
+			}
 
-   // bind the socket to the active interface
-   Rc = bind(sListenSocket, res->ai_addr, res->ai_addrlen);
+			if (ai->ai_family == AF_INET6)
+			{	// 双栈：V6ONLY=0 同时接受 IPv4；纯 IPv6：V6ONLY=1 拒绝 v4-mapped
+				int nV6Only = (sSettings.bIPv4 && sSettings.bIPv6) ? 0 : 1;
+				setsockopt (sListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, (char *) & nV6Only, sizeof nV6Only);
+			}
 
-   if (Rc == INVALID_SOCKET)
-   {char szAddr[MAXLEN_IPv6]="unknown", szServ[NI_MAXSERV]="unknown";
-    int KeepLastError = GetLastError();
-      // retrieve localhost and port
-		getnameinfo (  res->ai_addr, res->ai_addrlen, 
-		               szAddr, sizeof szAddr, 
-				       szServ, sizeof szServ,
-				       NI_NUMERICHOST | AI_NUMERICSERV );
-		SetLastError (KeepLastError); // getnameinfo has reset LastError !
-	   // 3 causes : access violation, socket already bound, bind on an address non available
-	   switch (GetLastError ())
-	   {
-			case WSAEADDRNOTAVAIL :   // 10049
-	  		    SVC_ERROR ("错误 %d（%s）\n\n"
-					   "TFTP 服务无法绑定端口 %s\n"
-					   "到本机不存在的网卡地址 %s\n"
-					   "请修改“绑定网卡（LocalIP）”设置，或清除该项以监听全部接口",
- 					    GetLastError (), LastErrorText (),
-						"tftp", sSettings.szTftpLocalIP); 
-				break;
-			case WSAEINVAL :
-			case WSAEADDRINUSE :
-	  		    SVC_ERROR ("错误 %d（%s）\n\n"
-					   "TFTP 服务无法绑定端口 %s\n"
-					   "该端口已被其它应用占用，请更换端口后重试",
- 					    GetLastError (), LastErrorText (),
-						"tftp" );
-				break;
-			default :
-				SVC_ERROR ("绑定端口失败：错误 %d（%s）",
- 					    GetLastError (), LastErrorText () );
-				break;
-	   } // switch error type
-       closesocket (sListenSocket);
-	   LogToMonitor ("绑定地址 %s 端口 %s 失败\n", szAddr, szServ);
-   }
+			// bind the socket to the active interface
+			if (bind(sListenSocket, ai->ai_addr, ai->ai_addrlen) != 0)
+			{
+				int KeepLastError = GetLastError();
+				// retrieve localhost and port
+				getnameinfo (  ai->ai_addr, ai->ai_addrlen,
+							   szAddr, sizeof szAddr,
+							   szPort, sizeof szPort,
+							   NI_NUMERICHOST | AI_NUMERICSERV );
+				SetLastError (KeepLastError); // getnameinfo has reset LastError !
+				nErr = KeepLastError;
+				// 3 causes : access violation, socket already bound, bind on an address non available
+				switch (KeepLastError)
+				{
+					case WSAEADDRNOTAVAIL :   // 10049
+						SVC_ERROR ("错误 %d（%s）\n\n"
+								   "TFTP 服务无法绑定端口 %s\n"
+								   "到本机不存在的网卡地址 %s\n"
+								   "请修改“绑定网卡（LocalIP）”设置，或清除该项以监听全部接口",
+									KeepLastError, LastErrorText (),
+									"tftp", sSettings.szTftpLocalIP);
+						break;
+					case WSAEINVAL :
+					case WSAEADDRINUSE :
+						SVC_ERROR ("错误 %d（%s）\n\n"
+								   "TFTP 服务无法绑定端口 %s\n"
+								   "该端口已被其它应用占用，请更换端口后重试",
+									KeepLastError, LastErrorText (),
+									"tftp" );
+						break;
+					default :   // D9：无权限等错误给出中文说明，不再只显示英文 errno 文本
+						SVC_ERROR ("绑定端口失败：%s（errno %d）",
+									PalSvcErrText (KeepLastError), KeepLastError);
+						break;
+				} // switch error type
+				closesocket (sListenSocket);
+				sListenSocket = INVALID_SOCKET;
+				LogToMonitor ("绑定地址 %s 端口 %s 失败\n", szAddr, szPort);
+			}
+		} // for each addrinfo of the family
+	} // for each family
+
+	if (sListenSocket == INVALID_SOCKET  &&  nErr != 0)
+		LogToMonitor ("TFTP 服务未能在端口 %s 上建立监听（%s，errno %d）",
+		              szServ, PalSvcErrText (nErr), nErr);
+
    freeaddrinfo (res);
-return   Rc == INVALID_SOCKET ? Rc : sListenSocket;
+return sListenSocket;
 
 } // TftpBindLocalInterface
 

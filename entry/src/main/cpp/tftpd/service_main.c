@@ -44,8 +44,9 @@ static void *PalSvcTramp (void *param)
     return NULL;
 }
 
-/* D3：把常见 bind/socket 失败原因翻译成用户可读提示（日志页直接展示） */
-static const char *PalSvcErrText (int nErr)
+/* D3：把常见 bind/socket 失败原因翻译成用户可读提示（日志页直接展示）
+   D9：TFTP 监听套接字的绑定失败也复用同一套中文文案 */
+const char *PalSvcErrText (int nErr)
 {
     switch (nErr)
     {

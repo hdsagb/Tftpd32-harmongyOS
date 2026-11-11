@@ -56,11 +56,13 @@ MD5C.C 许可要求：凡提及该软件的材料须标注 *"RSA Data Security, 
 
 **整改**：在 README「上游与许可证」补一句：本项目 MD5 实现 derived from the RSA Data Security, Inc. MD5 Message-Digest Algorithm。
 
-### F4（低，市场发布前）应用标识为模板占位值
+### F4（低，市场发布前）应用标识为模板占位值——✅ 已定稿（2026-11-11）
 
 - `bundleName: com.example.myapplication`、`vendor: example`——需改为反域名格式自有标识（上架后不可改）；
 - `app_name: "Tftpd32"`——与上游同名。上游未主张商标，但作为非官方衍生作品，建议市场名称使用描述性形式（如 "Tftpd32 for HarmonyOS"）并在简介首行注明非官方移植、与原作者无隶属关系，避免混淆；
 - `versionName 1.0.0`/`versionCode 1000000` 上架前确认。
+
+**定稿（2026-11-11）**：bundleName=io.github.hdsagb.tftpd32harmongyOS（与 GitHub 仓库一致的反域名自有标识）、vendor=hdsagb、市场展示名保持 Tftpd32（应用内「关于」与简介已注明非官方移植、与原作者无隶属）、versionName=1.0.0/versionCode=1000002；隐私政策见仓库 [PRIVACY.md](../PRIVACY.md)（Gitee 仓库页托管，URL 于 AGC 提审时填写）。
 
 ### F5（低，随手改）包描述文件缺许可证字段
 
@@ -74,8 +76,8 @@ MD5C.C 许可要求：凡提及该软件的材料须标注 *"RSA Data Security, 
 2. ~~F2 补齐衍生文件头注释~~ ✅；
 3. ~~F3 README 补 MD5 署名~~ ✅；
 4. ~~F5 包描述文件许可证字段~~ ✅；
-5. F4 应用标识（bundleName/vendor/名称）定稿并核对真机重装；
-6. 真机开发与测试方案（E2）全部用例通过（D8 正式签名、D9 截图含最终标识）。
+5. ~~F4 应用标识（bundleName/vendor/名称）定稿并核对真机重装~~ ✅（2026-11-11 定稿 io.github.hdsagb.tftpd32harmongyOS；真机核对并入上架新包全新安装验证——新 bundleName 为全新应用，SG-01 覆盖升级链路不延续）；
+6. 真机开发与测试方案（E2）全部用例通过（D8 正式签名、D9 截图含最终标识）——已执行用例全部通过；R8 IPv6 腿经用户决策豁免（2026-11-11，环境已具备未实测，见未测报告 B-02）；D8 正式签名待 AGC 发布证书/发布 Profile 重签上架包后完成。
 
 ## 五、整改记录
 
@@ -88,6 +90,8 @@ MD5C.C 许可要求：凡提及该软件的材料须标注 *"RSA Data Security, 
 - 未改动：F4 市场发布标识（bundleName/vendor/app_name）保留为发布前定稿项。
 
 整改提交：`docs:` 许可证与衍生版权头修正（含本次报告更新）。
+
+2026-11-11 完成 F4 定稿：bundleName 更换为 io.github.hdsagb.tftpd32harmongyOS（AppScope/app.json5 与 Index.ets BUNDLE_NAME 同步）、vendor=hdsagb、app_name 保持 Tftpd32、versionCode=1000002；新增仓库根 PRIVACY.md（AGC 隐私政策 URL 载体）；同日未测报告 R8 IPv6 腿标注经用户决策豁免。上架包需以 AGC 发布证书 + 发布 Profile 重签（真机 D8）。
 
 ## 六、风险声明
 

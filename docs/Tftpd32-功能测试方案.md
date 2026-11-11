@@ -259,7 +259,7 @@ Set-Content D:\trae\tfpd32\root\test_1k.txt ("Tftpd32 test`r`n" * 100)
 | OACK 协商 | 服务端回 `OACK: <multicast=239.255.0.1,6969,>`，日志 `multicast option accepted : 239.255.0.1,6969` | 通过；RFC2090 选项值格式为 `<地址>,<端口>` |
 | 组播发送 | 日志 `multicast transfer to 239.255.0.1:6969`；独立 socket 在 app 域 `SO_REUSEADDR` 绑定 6969 并 `IP_ADD_MEMBERSHIP` 成功 | 通过 |
 | 单播回归 | `m2tool get` 下载 4096 字节，MD5 `e9a56f976c51945a8cb5093215ab42ec` 与源文件一致 | 通过 |
-| 组播接收/ACK | `hdc shell` 域绑定 6969 被 SELinux 拒绝（EACCES），客户端无法加入组收取 DATA；OACK 协商仍可完成 | **阻塞**：需真机或非 shell 域客户端；同网段双客户端对拍随 A2/A3 |
+| 组播接收/ACK | `hdc shell` 域绑定 6969 被 SELinux 拒绝（EACCES），客户端无法加入组收取 DATA；OACK 协商仍可完成 | **已闭环（真机）**：OACK 协商、组播接收（小文件 + 10MB 大文件）、ACK 单播回程、非法组播地址回落单播均通过；双客户端缺陷（D7/D8）修复后 2026-11-02 回归闭环（真机方案 §12 MC-01~05、未测项目报告） |
 
 组播日志样例（应用日志页）：
 `multicast option accepted : 239.255.0.1,6969` → `OACK: <multicast=239.255.0.1,6969,>` → `multicast transfer to 239.255.0.1:6969`。
@@ -407,7 +407,7 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 | 编号 | 操作 | 结果 | 结论 |
 |---|---|---|---|
 | MD-01 | 目录页对 `hosts.txt`（37 字节）点 MD5 | `hosts.txt: ecb492e43bb51bd9c2b6f0360bd83a60`，与 PC `certutil -hashfile hosts.txt MD5` 完全一致 | 通过（**修复缺陷**：LP64 下 UINT4 为 8 字节，见 BUG-007） |
-| MD-02 | 设置页开 `MD5=1` 后由 PC 向设备 PUT | 未执行 | 受 E1 模拟器 UDP 不通限制，随 M3 真机 TC 对拍执行 |
+| MD-02 | 设置页开 `MD5=1` 后由 PC 向设备 PUT | 已由真机补齐执行：生成 `.md5` 文件，内容与 `certutil -hashfile … MD5` 一致 | 已闭环（真机方案 §12 MD-02） |
 | MD-03 | 目录页刷新 | 依次显示 `up_hosts.txt`、`client_dl.bin`、`hosts.txt`、`client_form.txt` 及大小，每行带 MD5 按钮 | 通过 |
 
 ### 6.10 DHCP 服务器（M3，E2）
@@ -437,6 +437,8 @@ hosts.txt 内容：`myhost 192.168.1.100 -` / `myhost6 - ::1`。
 
 说明与遗留：
 - 回环自测覆盖报文语义（选项编码、地址分配/回收、持久化），**未覆盖**二层广播/多网卡选路，后者需真机 + 同网段 PC（A3 / 本用例真机部分）。
+- 真机补充（消除 DH-06 编号两义，见真机方案 §7 编号说明；编号权威=本方案）：二层广播已复核（真机 DH-01，2026-11-02 通过，受限广播属 Wi-Fi 链路层平台行为）；多网卡 `LocalIP` 绑定校验已在真机执行通过（真机方案 §12 DH-06）。
+- 本用例主体（DH-05/DH-06 自定义选项、AddOptionNumber/AddOptionValue 对齐）已在模拟器执行通过，见 §6.10.1 逐项记录。
 - 测试工具缺陷（非应用缺陷）：`m2tool dhcp decline` 最初把请求地址写进了 BOOTP `yiaddr` 字段，而 `ProcessDHCPMessage` 见到 `yiaddr!=0` 会直接丢弃报文（原版逻辑），导致 DECLINE 看似无效；改为只带 option 50 后正常。已在 `tools/m2tool.c` 注释标注。
 - 租约数减少后 `tftpd32.ini` 会残留旧的 `Lease_9_*` 键（写键不删键），加载以 `Lease_NumLeases` 为准，不影响行为，与原版私有配置文件写法的表现一致。
 
@@ -544,7 +546,7 @@ UI-02 修复明细（均在 §9 缺陷模板登记为 BUG-002~BUG-005）：
 |---|---|---|---|
 | NF-01 | P1 | 启动时间 | 冷启动→服务可接受请求 ≤2s |
 | NF-02 | P1 | 内存占用 | 挂 10 个并发传输时内存 <100MB |
-| NF-03 | P1 | 体积 | 安装包与 .so 保持轻量（当前 HAP≈2.8MB / libtftpd32.so≈180KB，与原版 exe 同数量级） |
+| NF-03 | P1 | 体积 | 安装包与 .so 保持轻量（与原版 exe 同数量级）。注：行内 HAP≈2.8MB / .so≈180KB 为 2026-10-18 方案阶段历史计划值，早于 M4 打包优化，已由实测取代——见 §9.4.1 复核记录与未测项目报告 B-08（2026-11-03 通过） |
 | NF-04 | P1 | 长稳 | 持续挂机 24h（模拟器）无内存持续增长、无崩溃 |
 | NF-05 | P1 | 后台存活 | （真机 M4）退后台 8h 后服务仍可达 |
 | NF-06 | P2 | 吞吐 | 模拟器内 10MB 下载耗时不劣于原版在本机的 5 倍 |
@@ -655,6 +657,8 @@ M2 同时确认的平台限制（非缺陷）：E1 模拟器只转发 TCP，TFTP
 构建参数：`CMakeLists.txt` 全局 `-O2`；release 追加 `-s`（去符号表）；`-static-libstdc++` 并同时在
 `entry/build-profile.json5` 的 `nativeLib.filter.excludes` 排除 `libc++_shared.so`（原会额外打包约 2.4 MB）。
 体积与上游保持同一数量级（约 1 MB vs 0.6 MB），符合“体积小”约束。
+
+2026-11-03 复核（NF-03 独立结论，真机在装构建 2026-11-03 01:16）：签名 HAP 1,262,726 B≈1.20MiB（unsigned 1,208,043 B），内含 arm64+x86_64 双架构 .so（arm64 401,232 B≈391.8KiB / x86_64 412,568 B≈402.9KiB；HAP 内 .so 不压缩存储）+ ArkTS modules.abc 217.6KB + 资源约 100KB。同口径对比：原版主程序 tftpd64.exe 439,376 B≈429KiB、上游安装器 644.9KB。结论：.so 与原版 exe 同量级（392 vs 429KiB，且 .so 已含全部服务套件），双架构全量 HAP 亦仅 1.9× 安装器体积，**NF-03 通过**。§6.14 行内预期值（2.8MB/180KB）为方案阶段历史计划值（早于上述打包优化），已由实测取代；上表早期 HAP 1016.8KB 与本次 1179.7KiB 的差异来自后续功能与资源增量，同为 ~1MB 量级。
 
 #### 9.4.2 D2 启动即服务
 

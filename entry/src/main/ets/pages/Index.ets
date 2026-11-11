@@ -14,12 +14,13 @@ const KEY_RETRANSMIT = 'MaxRetransmit';
 const KEY_NEGOCIATE = 'Negociate';
 const KEY_WINSIZE = 'WinSize';
 const KEY_IPV4 = 'Enable IPv4';
+const KEY_IPV6 = 'Enable IPv6';
 const KEY_LOCALIP = 'LocalIP';
 const KEY_MCAST_ADDR = 'MulticastAddress';
 const KEY_MCAST_PORT = 'MulticastPort';
 const KEY_SYSLOG_FILE = 'SaveSyslogFile';
 const KEY_SERVICES = 'Services';
-const BUNDLE_NAME = 'com.example.myapplication';
+const BUNDLE_NAME = 'io.github.hdsagb.tftpd32harmongyOS';
 const ABILITY_NAME = 'EntryAbility';
 
 // D2：同一进程内只自动启动一次（页面重建/通知授权弹窗不应重复拉起服务）
@@ -36,6 +37,7 @@ struct Index {
   @State negociate: boolean = true;
   @State winSize: string = '1';
   @State ipv4On: boolean = true;    // 原版 Enable IPv4 键，默认开启
+  @State ipv6On: boolean = true;    // 原版 Enable IPv6 键，默认开启
   @State localIp: string = '';
   @State localIpIndex: number = 0;
   private localIpOpts: SelectOption[] = [{ value: '全部接口' }];
@@ -60,7 +62,7 @@ struct Index {
   aboutToAppear(): void {
     TftpdService.init(getContext(this));
     this.loadSettings();
-    this.baseDir = `${getContext(this).filesDir}/tftpboot`;
+    this.baseDir = TftpdService.baseDir;   // D12：根目录跟随 ini BaseDirectory
     TftpdService.subscribe(() => {
       this.logs = [...TftpdService.logs];
       this.transfers = [...TftpdService.transfers];
@@ -114,7 +116,7 @@ struct Index {
         Text('Syslog 服务器').width(160)
         Toggle({ type: ToggleType.Switch, isOn: this.syslogOn })
           .onChange((on: boolean) => { this.syslogOn = on; this.toggleSub(0x0008, on) })
-        Text('端口 5140').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Text('端口 ' + (TftpdService.getInt('SyslogPort') || 5140)).fontSize(12).opacity(0.6).margin({ left: 8 })
         Blank()
       }.width('100%')
 
@@ -122,7 +124,7 @@ struct Index {
         Text('SNTP 服务器').width(160)
         Toggle({ type: ToggleType.Switch, isOn: this.sntpOn })
           .onChange((on: boolean) => { this.sntpOn = on; this.toggleSub(0x0010, on) })
-        Text('端口 1230').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Text('端口 ' + (TftpdService.getInt('SntpPort') || 1230)).fontSize(12).opacity(0.6).margin({ left: 8 })
         Blank()
       }.width('100%')
 
@@ -130,7 +132,7 @@ struct Index {
         Text('DNS 服务器').width(160)
         Toggle({ type: ToggleType.Switch, isOn: this.dnsOn })
           .onChange((on: boolean) => { this.dnsOn = on; this.toggleSub(0x0020, on) })
-        Text('端口 5300').fontSize(12).opacity(0.6).margin({ left: 8 })
+        Text('端口 ' + (TftpdService.getInt('DnsPort') || 5300)).fontSize(12).opacity(0.6).margin({ left: 8 })
         Blank()
       }.width('100%')
 
@@ -213,6 +215,14 @@ struct Index {
       }.width('100%')
 
       Row() {
+        Text('启用 IPv6').width(180)
+        Toggle({ type: ToggleType.Switch, isOn: this.ipv6On })
+          .onChange(on => { this.ipv6On = on })
+        Text('关闭后 TFTP 不监听 IPv6（原版 Enable IPv6 键），重启服务生效')
+          .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
+      }.width('100%')
+
+      Row() {
         Text('组播地址（RFC2090）').width(180)
         TextInput({ text: this.mcastAddr, placeholder: '如 239.255.0.1' }).layoutWeight(1)
           .onChange(v => { this.mcastAddr = v })
@@ -240,6 +250,15 @@ struct Index {
           TftpdService.logs.push(ok ? '配置已保存' : '保存失败');
           this.logs = [...TftpdService.logs];
         })
+
+      Divider().margin({ top: 16, bottom: 8 })
+
+      Text('关于').fontSize(14).fontWeight(FontWeight.Bold)
+      Text('本应用是基于开源项目 Tftpd32/Tftpd64（作者 Philippe Jounin，EUPL-1.2）的鸿蒙移植版，' +
+        '为独立开发的第三方版本，与原作者及官方发布无关。')
+        .fontSize(12).opacity(0.6).margin({ top: 4 })
+      Text('本项目按 GPL-2.0-only 分发，完整源码随仓库公开；应用图标为本项目自制，未使用上游品牌素材。')
+        .fontSize(12).opacity(0.6).margin({ top: 4 })
     }.padding(12).alignItems(HorizontalAlign.Start)
     }.scrollBar(BarState.Auto).height('100%')
   }
@@ -290,6 +309,8 @@ struct Index {
     this.winSize = w > 0 ? `${w}` : '1';
     const v4 = TftpdService.getInt(KEY_IPV4);
     if (v4 >= 0) this.ipv4On = v4 !== 0;
+    const v6 = TftpdService.getInt(KEY_IPV6);
+    if (v6 >= 0) this.ipv6On = v6 !== 0;
     // LocalIP：枚举本机网卡地址，回填已保存的选择
     const ips = TftpdService.localIPv4s();
     const opts: SelectOption[] = [{ value: '全部接口' }];
@@ -340,6 +361,7 @@ struct Index {
     TftpdService.setInt(KEY_NEGOCIATE, this.negociate ? 1 : 0);
     TftpdService.setInt(KEY_WINSIZE, Number(this.winSize));
     TftpdService.setInt(KEY_IPV4, this.ipv4On ? 1 : 0);
+    TftpdService.setInt(KEY_IPV6, this.ipv6On ? 1 : 0);
     TftpdService.setStr(KEY_LOCALIP, this.localIp);
     TftpdService.setStr(KEY_MCAST_ADDR, this.mcastAddr.trim());
     TftpdService.setInt(KEY_MCAST_PORT, parseInt(this.mcastPort) || 0);
