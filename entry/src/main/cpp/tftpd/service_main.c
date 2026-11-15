@@ -229,7 +229,10 @@ void PalServiceStopMask (unsigned uMask)
 int TftpdServiceStart (void)
 {
     unsigned uSupported = SERVICE_TFTP | SERVICE_SYSLOG | SERVICE_SNTP | SERVICE_DNS | SERVICE_DHCP;
-    return PalServiceStartMask (sSettings.uServices & uSupported) > 0;
+    PalServiceStartMask (sSettings.uServices & uSupported);
+    /* D4：TFTP 是核心服务，只有它真正进入运行态才报告启动成功；
+       否则端口被占用时，仅凭其它子服务启动成功就会误报「运行中」 */
+    return tThreads [TH_TFTP].gRunning ? TRUE : FALSE;
 }
 
 void TftpdServiceStop (void)

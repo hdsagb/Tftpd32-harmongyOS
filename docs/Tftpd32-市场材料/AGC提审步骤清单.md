@@ -23,6 +23,7 @@
 | 应用简介（约 200 字） | 同上 | 含非官方移植声明与「完全本地运行，不上传任何数据」 |
 | 权限用途说明 ×3 | 同上 | INTERNET / GET_NETWORK_INFO / KEEP_BACKGROUND_RUNNING |
 | 7 张真机截图 | [docs/test-evidence/SG-02/](../test-evidence/SG-02) | SG02_01 设置页 ~ SG02_07 自由窗口（jpeg，真机原生分辨率） |
+| 应用图标 216×216 | [Tftpd32-icon-216.png](Tftpd32-icon-216.png) | 由 layered_image 前景+背景合成导出（2026-11-14，A3 完成） |
 | 隐私政策文本 | [PRIVACY.md](../../PRIVACY.md) | 无账号、无数据收集、权限用途、本地存储说明 |
 | LICENSE | [LICENSE](../../LICENSE) | 逐字 GPLv2 原文（F1 已整改） |
 | 上架候选代码 | 本仓库（versionCode 1000002，含「启用 IPv6」开关） | 需按 §三 重签后打包 |
@@ -34,24 +35,35 @@
 | U2 | AGC 实名认证账号 | 个人/企业开发者账号 |
 | U3 | AGC 创建 HarmonyOS 应用 | 包名 io.github.hdsagb.tftpd32harmongyOS、名称 Tftpd32、类别建议「工具 > 系统工具」 |
 | U4 | App 备案（工信部） | 经 AGC/华为云备案系统提交个人主体备案（App 名称、包名、平台 HarmonyOS）；**中国区提审必填备案号** |
-| U5 | AGC 发布证书 + 发布 Profile | 证书管理 → 新建发布证书（.cer/.p12）+ 发布 Profile（.p7b，绑定上述包名）→ 下载后提供给助手重签 |
+| U5 | AGC 发布证书 + 发布 Profile | 证书管理 → 新建发布证书（.cer/.p12）+ 发布 Profile（.p7b，绑定上述包名）→ 下载后提供给助手重签 —— **已取得**：`signature/Tftpd32-HS.cer`、`Tftpd32-HS.p12`、`Tftpd32-HSRelease.p7b`（release / app_gallery，有效期至 2029-11-11） |
 | U6 | 版权证明材料 | 免费开源应用通常填版权归属声明即可；若审核要求补充软著证书再提供 |
 | U7 | AGC 表单填写与上传 | 按 §四 逐项填写 → 上传 .app → 提审 |
 
 ### 待办（助手侧）
-| # | 待办 | 触发条件 |
+| # | 待办 | 状态 |
 |---|---|---|
-| A1 | build-profile.json5 切换发布签名材料 → hvigor assembleApp 重签打包 .app | 收到 U5 的发布证书/Profile |
-| A2 | 新 bundleName 全新安装核验（真机）：卸载旧包 → 安装上架包 → 服务自启/GET/配置保留冒烟 | A1 出包后（并入真机 D8/D9 收尾） |
-| A3 | 导出 216×216 应用图标 PNG（layered_image 前景+背景合成） | 随时可做，AGC 建应用时上传 |
+| A1 | build-profile.json5 切换发布签名材料 → hvigor assembleApp 重签打包 .app | **已完成（2026-11-14）**：已切换为 AGC 发布签名，`bash assembleApp` 构建成功，产物 `build\outputs\default\Tftpd32-harmongyOS-default-signed.app`，`hap-sign-tool verify-app` 校验通过（Digest SHA-256 true / Verify success） |
+| A2 | 新 bundleName 全新安装核验（真机）：卸载旧包 → 安装上架包 → 服务自启/GET/配置保留冒烟 | 待 U7 上传后经 AGC 内测通道安装（发布包为 app_gallery profile，不支持 hdc 侧载） |
+| A3 | 导出 216×216 应用图标 PNG（layered_image 前景+背景合成） | **已完成（2026-11-14）**：`docs/Tftpd32-市场材料/Tftpd32-icon-216.png` |
 
 ## 三、打包与签名说明（助手侧执行细节）
 
-- 上架包必须用 **AGC 发布证书 + 发布 Profile** 签名（当前 build-profile.json5 指向 signature/T32-testRelease.p7b 内测 profile，仅用于真机调试与 SG-01 升级验证，不可用于上架）。
+- 上架包必须用 **AGC 发布证书 + 发布 Profile** 签名。当前 `build-profile.json5` 已切换为 `signature/Tftpd32-HS.p12` + `Tftpd32-HSRelease.p7b`（release / app_gallery）；调试签名配置备份在 `signature/build-profile.debug-backup.json5`，需要再走 hdc 调试安装时替换回来即可。
 - 打包命令（hvigor，env：NODE_HOME=$deveco\tools\node，PATH 前插 node+jbr\bin，DEVECO_SDK_HOME=$deveco\sdk）：
   `hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`
 - 产物：`build\outputs\default\Tftpd32-harmongyOS-default-signed.app`（重签后同路径覆盖）。
 - 新 bundleName 与设备上已装的 com.example.tftpd32harmongyOS 互不兼容：核验时需先卸载旧包，全新安装（SG-01 覆盖升级链路不延续，属预期）。
+
+### 3.1 2026-11-14 上架前执行记录
+
+| 项 | 结果 |
+|---|---|
+| 发布签名材料核验 | `verify-profile` 解析通过：bundle-name=`io.github.hdsagb.tftpd32harmongyOS`、type=`release`、distribution-type=`app_gallery`、有效期至 2029-11-11 |
+| 集成构建 | `hvigorw --mode project -p product=default -p buildMode=release assembleApp` BUILD SUCCESSFUL（37s），产物 `build\outputs\default\Tftpd32-harmongyOS-default-signed.app`（766 KB，2026-11-14 11:49） |
+| 包校验 | `hap-sign-tool verify-app` 通过（SHA-256 Digest verify=true / Verify success）；包内 `entry-default.hap` 含 `libs/arm64-v8a/libtftpd32.so`、`resources/base/profile/configuration.json` |
+| 包内元数据 | `debug=false`、versionCode 1000002 / versionName 1.0.0、deviceTypes phone+2in1、minAPIVersion 60100023(API 23)、权限 INTERNET / GET_NETWORK_INFO / KEEP_BACKGROUND_RUNNING、backgroundModes dataTransfer |
+| 应用图标 | 216×216 PNG 已导出（A3） |
+| 待用户侧 | U1 Gitee 仓库、U4 备案号、U7 上传 .app 并提审；U3 建应用时包名必须为 `io.github.hdsagb.tftpd32harmongyOS` |
 
 ## 四、AGC 提审表单字段对照（用户侧照填）
 
@@ -66,8 +78,8 @@
 | 一句话简介 | README「应用信息」第 1 条 |
 | 应用简介 | README「应用简介」段落 |
 | 截图 | SG02_01~SG02_06（自由窗口 1 张可选附） |
-| 应用图标 | 216×216 PNG（待办 A3 导出） |
-| 隐私政策 URL | `https://gitee.com/hdsagb/Tftpd32-harmongyOS/blob/master/PRIVACY.md`（U1 完成后生效，提审前自查可打开） |
+| 应用图标 | 216×216 PNG：[Tftpd32-icon-216.png](Tftpd32-icon-216.png)（A3 已导出） |
+| 隐私政策 URL | 采用 AGC 内置隐私声明（2026-11-11 决策）；应用内无内置隐私弹窗/页面（已核查）。若后台仍强制要求 URL，则填 `https://gitee.com/hdsagb/Tftpd32-harmongyOS/blob/master/PRIVACY.md`（U1 完成后生效，提审前自查可打开） |
 | 版权信息 | 「本应用为开源软件（GNU GPL v2），版权归属 Tftpd32 for HarmonyOS 项目贡献者；上游 Tftpd32/Tftpd64 © Philippe Jounin（EUPL-1.2）。」 |
 | 权限用途 | AGC 自动读取 requestPermissions 后逐条填写 README 权限用途说明对应文案 |
 | App 备案号 | U4 完成后取得，必填 |

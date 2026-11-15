@@ -26,7 +26,8 @@
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
-        "backgroundModes": ["taskKeeping"],
+        "orientation": "auto_rotation",
+        "backgroundModes": ["dataTransfer"],
         "supportWindowMode": ["fullscreen", "split", "floating"],
         "skills": [
           {

@@ -26,6 +26,11 @@ const ABILITY_NAME = 'EntryAbility';
 // D2：同一进程内只自动启动一次（页面重建/通知授权弹窗不应重复拉起服务）
 let gAutoStarted: boolean = false;
 
+// PH-19：DATA_TRANSFER 长时任务超过 10 分钟无进度更新会被系统取消，进程随后被冻结
+// （表现为端口仍在监听、收包队列堆积、对端全部超时）。取消回调只注册一次，转发给当前页面实例。
+let gCtListenerInstalled: boolean = false;
+let gCtRetry: () => void = () => {};
+
 @Entry
 @Component
 struct Index {
@@ -52,8 +57,14 @@ struct Index {
   @State logs: string[] = [];
   @State transfers: TrfStat[] = [];
   private ctRunning: boolean = false;   // 长时任务是否申请成功
+  private ctId: number = -1;            // 当前长时任务 ID
+  private ctKeepTimer: number = -1;     // 定期刷新长时任务（延后系统取消）的定时器
+  private ctKeepWarned: boolean = false;
   private static readonly NOTIFY_ID = 1001;
   private logScroller: Scroller = new Scroller();
+  // 日志自动吸底：仅在用户停留在列表底部时才跟随新日志；
+  // 用户上翻查看历史时保持当前位置，不再被强制拉回底部
+  private logFollow: boolean = true;
   private pruneTimer: number = -1;
   private securityOpts: SelectOption[] = [
     { value: '无' }, { value: '标准' }, { value: '高' }, { value: '只读' }
@@ -66,7 +77,7 @@ struct Index {
     TftpdService.subscribe(() => {
       this.logs = [...TftpdService.logs];
       this.transfers = [...TftpdService.transfers];
-      this.logScroller.scrollEdge(Edge.Bottom);
+      if (this.logFollow) this.logScroller.scrollEdge(Edge.Bottom);
     });
     // 已结束行留存 10s 后清除（对齐原版 Keep transfer Gui）
     this.pruneTimer = setInterval(() => {
@@ -78,10 +89,31 @@ struct Index {
       gAutoStarted = true;
       this.autoStart();
     }
+    // PH-19：长时任务被系统取消时立即重申请，避免进程随后被冻结
+    gCtRetry = () => this.reEnsureContinuousTask();
+    if (!gCtListenerInstalled) {
+      gCtListenerInstalled = true;
+      try {
+        backgroundTaskManager.on('continuousTaskCancel',
+          (info: backgroundTaskManager.ContinuousTaskCancelInfo) => {
+            TftpdService.logs.push(`长时任务被系统取消（原因码 ${info.reason}），正在重新申请`);
+            gCtRetry();
+          });
+      } catch (_e) { /* 设备无此接口时的降级路径 */ }
+    }
+    // PH-19：定时刷新任务，尽量不让系统走到“10 分钟无进度”的取消路径
+    this.ctKeepTimer = setInterval(() => this.refreshContinuousTask(), 4 * 60 * 1000);
+  }
+
+  onPageShow(): void {
+    // 回到前台时若长时任务已失效则重新申请，否则再次退后台仍会被冻结
+    this.running = TftpdService.isStarted();
+    if (this.running && !this.ctRunning) this.reEnsureContinuousTask();
   }
 
   aboutToDisappear(): void {
     if (this.pruneTimer !== -1) clearInterval(this.pruneTimer);
+    if (this.ctKeepTimer !== -1) clearInterval(this.ctKeepTimer);
   }
 
   build() {
@@ -104,162 +136,165 @@ struct Index {
   @Builder
   SettingsPage() {
     Scroll() {
-    Column({ space: 8 }) {
       Row() {
-        Text('服务').width(80)
-        Toggle({ type: ToggleType.Switch, isOn: this.running })
-          .onChange((on: boolean) => { this.toggleService(on) })
-        Text(this.running ? '运行中' : '已停止').margin({ left: 8 })
-      }.width('100%')
+        Column({ space: 8 }) {
+          Row() {
+            Text('服务').width(80)
+            Toggle({ type: ToggleType.Switch, isOn: this.running })
+              .onChange((on: boolean) => { this.toggleService(on) })
+            Text(this.running ? '运行中' : '已停止').margin({ left: 8 })
+          }.width('100%')
 
-      Row() {
-        Text('Syslog 服务器').width(160)
-        Toggle({ type: ToggleType.Switch, isOn: this.syslogOn })
-          .onChange((on: boolean) => { this.syslogOn = on; this.toggleSub(0x0008, on) })
-        Text('端口 ' + (TftpdService.getInt('SyslogPort') || 5140)).fontSize(12).opacity(0.6).margin({ left: 8 })
-        Blank()
-      }.width('100%')
+          Row() {
+            Text('Syslog 服务器').width(160)
+            Toggle({ type: ToggleType.Switch, isOn: this.syslogOn })
+              .onChange((on: boolean) => { this.syslogOn = on; this.toggleSub(0x0008, on) })
+            Text('端口 ' + (TftpdService.getInt('SyslogPort') || 5140)).fontSize(12).opacity(0.6).margin({ left: 8 })
+            Blank()
+          }.width('100%')
 
-      Row() {
-        Text('SNTP 服务器').width(160)
-        Toggle({ type: ToggleType.Switch, isOn: this.sntpOn })
-          .onChange((on: boolean) => { this.sntpOn = on; this.toggleSub(0x0010, on) })
-        Text('端口 ' + (TftpdService.getInt('SntpPort') || 1230)).fontSize(12).opacity(0.6).margin({ left: 8 })
-        Blank()
-      }.width('100%')
+          Row() {
+            Text('SNTP 服务器').width(160)
+            Toggle({ type: ToggleType.Switch, isOn: this.sntpOn })
+              .onChange((on: boolean) => { this.sntpOn = on; this.toggleSub(0x0010, on) })
+            Text('端口 ' + (TftpdService.getInt('SntpPort') || 1230)).fontSize(12).opacity(0.6).margin({ left: 8 })
+            Blank()
+          }.width('100%')
 
-      Row() {
-        Text('DNS 服务器').width(160)
-        Toggle({ type: ToggleType.Switch, isOn: this.dnsOn })
-          .onChange((on: boolean) => { this.dnsOn = on; this.toggleSub(0x0020, on) })
-        Text('端口 ' + (TftpdService.getInt('DnsPort') || 5300)).fontSize(12).opacity(0.6).margin({ left: 8 })
-        Blank()
-      }.width('100%')
+          Row() {
+            Text('DNS 服务器').width(160)
+            Toggle({ type: ToggleType.Switch, isOn: this.dnsOn })
+              .onChange((on: boolean) => { this.dnsOn = on; this.toggleSub(0x0020, on) })
+            Text('端口 ' + (TftpdService.getInt('DnsPort') || 5300)).fontSize(12).opacity(0.6).margin({ left: 8 })
+            Blank()
+          }.width('100%')
 
-      Row() {
-        Text('DHCP 服务器').width(160)
-        Toggle({ type: ToggleType.Switch, isOn: this.dhcpOn })
-          .onChange((on: boolean) => { this.dhcpOn = on; this.toggleSub(0x0004, on) })
-        Text('端口 ' + TftpdService.getInt('DhcpPort') + '（在 DHCP 页签修改）')
-          .fontSize(12).opacity(0.6).margin({ left: 8 })
-        Blank()
-      }.width('100%')
+          Row() {
+            Text('DHCP 服务器').width(160)
+            Toggle({ type: ToggleType.Switch, isOn: this.dhcpOn })
+              .onChange((on: boolean) => { this.dhcpOn = on; this.toggleSub(0x0004, on) })
+            Text('端口 ' + TftpdService.getInt('DhcpPort') + '（在 DHCP 页签修改）')
+              .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
+            Blank()
+          }.width('100%')
 
-      Row() {
-        Text('端口').width(80)
-        TextInput({ text: this.port }).width(120).type(InputType.Number)
-          .onChange(v => { this.port = v })
-        Text('默认 6900（应用无法绑定 69 等特权端口）').fontSize(12).opacity(0.6).layoutWeight(1)
-      }.width('100%')
+          Row() {
+            Text('端口').width(80)
+            TextInput({ text: this.port }).width(120).type(InputType.Number)
+              .onChange(v => { this.port = v })
+            Text('默认 6900（应用无法绑定 69 等特权端口）').fontSize(12).opacity(0.6).layoutWeight(1)
+          }.width('100%')
 
-      Row() {
-        Text('绑定网卡（LocalIP）').width(160)
-        Select(this.localIpOpts)
-          .selected(this.localIpIndex).value(this.localIp || '全部接口')
-          .onSelect((i: number) => {
-            this.localIpIndex = i;
-            const v = `${this.localIpOpts[i].value}`;
-            this.localIp = i === 0 ? '' : v;
-          })
-        Blank()
-      }.width('100%')
+          Row() {
+            Text('绑定网卡（LocalIP）').width(160)
+            Select(this.localIpOpts)
+              .selected(this.localIpIndex).value(this.localIp || '全部接口')
+              .onSelect((i: number) => {
+                this.localIpIndex = i;
+                const v = `${this.localIpOpts[i].value}`;
+                this.localIp = i === 0 ? '' : v;
+              })
+            Blank()
+          }.width('100%')
 
-      Text('留空表示监听全部接口；选择具体地址后仅在该网卡上响应（原版 LocalIP 语义）')
-        .fontSize(12).opacity(0.6)
+          Text('留空表示监听全部接口；选择具体地址后仅在该网卡上响应（原版 LocalIP 语义）')
+            .fontSize(12).opacity(0.6)
 
-      Text('后台运行：服务运行期间申请长时任务（taskKeeping）以保持端口监听；' +
-        '若系统提示耗电，请在“设置 > 电池 > 应用耗电管理”中将本应用设为允许后台活动')
-        .fontSize(12).opacity(0.6)
+          Text('后台运行：服务运行期间申请长时任务（dataTransfer）以保持端口监听；' +
+            '若系统提示耗电，请在“设置 > 电池 > 耗电量排行”中找到本应用，进入应用耗电详情后允许后台活动')
+            .fontSize(12).opacity(0.6)
 
-      Row() {
-        Text('根目录').width(80)
-        Text(this.baseDir).fontSize(12).layoutWeight(1)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
+          Row() {
+            Text('根目录').width(80)
+            Text(this.baseDir).fontSize(12).layoutWeight(1)
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }.width('100%')
 
-      Row() {
-        Text('安全级别').width(80)
-        Select(this.securityOpts)
-          .selected(this.security).value(this.securityText())
-          .onSelect((i: number) => { this.security = i })
-      }.width('100%')
+          Row() {
+            Text('安全级别').width(80)
+            Select(this.securityOpts)
+              .selected(this.security).value(this.securityText())
+              .onSelect((i: number) => { this.security = i })
+          }.width('100%')
 
-      Row() {
-        Text('超时(秒)').width(80)
-        TextInput({ text: this.timeout }).width(80).type(InputType.Number)
-          .onChange(v => { this.timeout = v })
-        Text('重传次数').width(80).margin({ left: 12 })
-        TextInput({ text: this.retransmit }).width(80).type(InputType.Number)
-          .onChange(v => { this.retransmit = v })
-      }.width('100%')
+          Row() {
+            Text('超时(秒)').width(80)
+            TextInput({ text: this.timeout }).width(80).type(InputType.Number)
+              .onChange(v => { this.timeout = v })
+            Text('重传次数').width(80).margin({ left: 12 })
+            TextInput({ text: this.retransmit }).width(80).type(InputType.Number)
+              .onChange(v => { this.retransmit = v })
+          }.width('100%')
 
-      Row() {
-        Text('选项协商').width(80)
-        Toggle({ type: ToggleType.Switch, isOn: this.negociate })
-          .onChange(on => { this.negociate = on })
-        Text('RFC2347/2348/2349').fontSize(12).opacity(0.6).margin({ left: 8 })
-      }.width('100%')
+          Row() {
+            Text('选项协商').width(80)
+            Toggle({ type: ToggleType.Switch, isOn: this.negociate })
+              .onChange(on => { this.negociate = on })
+            Text('RFC2347/2348/2349').fontSize(12).opacity(0.6).margin({ left: 8 })
+          }.width('100%')
 
-      Row() {
-        Text('WinSize（RFC7440）').width(180)
-        TextInput({ text: this.winSize }).width(120).type(InputType.Number)
-          .onChange(v => { this.winSize = v })
-      }.width('100%')
+          Row() {
+            Text('WinSize（RFC7440）').width(180)
+            TextInput({ text: this.winSize }).width(120).type(InputType.Number)
+              .onChange(v => { this.winSize = v })
+          }.width('100%')
 
-      Row() {
-        Text('启用 IPv4').width(180)
-        Toggle({ type: ToggleType.Switch, isOn: this.ipv4On })
-          .onChange(on => { this.ipv4On = on })
-        Text('关闭后 TFTP 仅按 IPv6 监听（原版 Enable IPv4 键），重启服务生效')
-          .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
-      }.width('100%')
+          Row() {
+            Text('启用 IPv4').width(180)
+            Toggle({ type: ToggleType.Switch, isOn: this.ipv4On })
+              .onChange(on => { this.ipv4On = on })
+            Text('关闭后 TFTP 仅按 IPv6 监听（原版 Enable IPv4 键），重启服务生效')
+              .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
+          }.width('100%')
 
-      Row() {
-        Text('启用 IPv6').width(180)
-        Toggle({ type: ToggleType.Switch, isOn: this.ipv6On })
-          .onChange(on => { this.ipv6On = on })
-        Text('关闭后 TFTP 不监听 IPv6（原版 Enable IPv6 键），重启服务生效')
-          .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
-      }.width('100%')
+          Row() {
+            Text('启用 IPv6').width(180)
+            Toggle({ type: ToggleType.Switch, isOn: this.ipv6On })
+              .onChange(on => { this.ipv6On = on })
+            Text('关闭后 TFTP 不监听 IPv6（原版 Enable IPv6 键），重启服务生效')
+              .fontSize(12).opacity(0.6).margin({ left: 8 }).layoutWeight(1)
+          }.width('100%')
 
-      Row() {
-        Text('组播地址（RFC2090）').width(180)
-        TextInput({ text: this.mcastAddr, placeholder: '如 239.255.0.1' }).layoutWeight(1)
-          .onChange(v => { this.mcastAddr = v })
-      }.width('100%')
+          Row() {
+            Text('组播地址（RFC2090）').width(180)
+            TextInput({ text: this.mcastAddr, placeholder: '如 239.255.0.1' }).layoutWeight(1)
+              .onChange(v => { this.mcastAddr = v })
+          }.width('100%')
 
-      Row() {
-        Text('组播端口').width(180)
-        TextInput({ text: this.mcastPort, placeholder: '6969' }).width(120).type(InputType.Number)
-          .onChange(v => { this.mcastPort = v })
-      }.width('100%')
+          Row() {
+            Text('组播端口').width(180)
+            TextInput({ text: this.mcastPort, placeholder: '6969' }).width(120).type(InputType.Number)
+              .onChange(v => { this.mcastPort = v })
+          }.width('100%')
 
-      Text('组播留空即关闭；客户端 RRQ 带 multicast 选项时按此地址下发 DATA（须为 224.0.0.0/4）')
-        .fontSize(12).opacity(0.6)
+          Text('组播留空即关闭；客户端 RRQ 带 multicast 选项时按此地址下发 DATA（须为 224.0.0.0/4）')
+            .fontSize(12).opacity(0.6)
 
-      Row() {
-        Text('Syslog 日志文件').width(180)
-        TextInput({ text: this.syslogFile }).layoutWeight(1)
-          .onChange(v => { this.syslogFile = v })
-      }.width('100%')
+          Row() {
+            Text('Syslog 日志文件').width(180)
+            TextInput({ text: this.syslogFile }).layoutWeight(1)
+              .onChange(v => { this.syslogFile = v })
+          }.width('100%')
 
-      Blank()
-      Button('保存配置').width('100%')
-        .onClick(() => {
-          const ok = this.applySettings();     // 先把界面值写入设置并落盘
-          TftpdService.logs.push(ok ? '配置已保存' : '保存失败');
-          this.logs = [...TftpdService.logs];
-        })
+          Blank()
+          Button('保存配置').width('100%')
+            .onClick(() => {
+              const ok = this.applySettings();     // 先把界面值写入设置并落盘
+              if (ok) TftpdService.logs.push('配置已保存');   // 失败原因由 applySettings 记录
+              this.logs = [...TftpdService.logs];
+            })
 
-      Divider().margin({ top: 16, bottom: 8 })
+          Divider().margin({ top: 16, bottom: 8 })
 
-      Text('关于').fontSize(14).fontWeight(FontWeight.Bold)
-      Text('本应用是基于开源项目 Tftpd32/Tftpd64（作者 Philippe Jounin，EUPL-1.2）的鸿蒙移植版，' +
-        '为独立开发的第三方版本，与原作者及官方发布无关。')
-        .fontSize(12).opacity(0.6).margin({ top: 4 })
-      Text('本项目按 GPL-2.0-only 分发，完整源码随仓库公开；应用图标为本项目自制，未使用上游品牌素材。')
-        .fontSize(12).opacity(0.6).margin({ top: 4 })
-    }.padding(12).alignItems(HorizontalAlign.Start)
+          Text('关于').fontSize(14).fontWeight(FontWeight.Bold)
+          Text('本应用是基于开源项目 Tftpd32/Tftpd64（作者 Philippe Jounin，EUPL-1.2）的鸿蒙移植版，' +
+            '为独立开发的第三方版本，与原作者及官方发布无关。')
+            .fontSize(12).opacity(0.6).margin({ top: 4 })
+          Text('本项目按 GPL-2.0-only 分发，完整源码随仓库公开；应用图标为本项目自制，未使用上游品牌素材。')
+            .fontSize(12).opacity(0.6).margin({ top: 4 })
+        }.padding(12).alignItems(HorizontalAlign.Start)
+          .width('100%').constraintSize({ maxWidth: 720 })   // 横屏时限制内容宽度并居中，避免行被拉得过宽
+      }.width('100%').justifyContent(FlexAlign.Center)
     }.scrollBar(BarState.Auto).height('100%')
   }
 
@@ -353,8 +388,22 @@ struct Index {
     }
   }
 
+  // D1：端口须为 1~65535 的整数；非法输入不再静默回退到 6900
+  private static parsePort(text: string): number {
+    const s = text.trim();
+    if (s === '') return -1;
+    const v = Number(s);
+    if (!Number.isInteger(v) || v < 1 || v > 65535) return -1;
+    return v;
+  }
+
   private applySettings(): boolean {
-    TftpdService.setInt(KEY_PORT, parseInt(this.port) || 6900);
+    const port = Index.parsePort(this.port);
+    if (port < 0) {
+      TftpdService.logs.push(`端口“${this.port}”无效：应为 1~65535 的整数，配置未保存`);
+      return false;
+    }
+    TftpdService.setInt(KEY_PORT, port);
     TftpdService.setInt(KEY_SECURITY, this.security);
     TftpdService.setInt(KEY_TIMEOUT, parseInt(this.timeout) || 3);
     TftpdService.setInt(KEY_RETRANSMIT, parseInt(this.retransmit) || 6);
@@ -379,10 +428,45 @@ struct Index {
       wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
     };
     const wantAgentObj = await wantAgent.getWantAgent(info);
-    await backgroundTaskManager.startBackgroundRunning(
-      getContext(this),
-      backgroundTaskManager.BackgroundMode.TASK_KEEPING,
-      wantAgentObj);
+    const nt = await backgroundTaskManager.startBackgroundRunning(
+      getContext(this), ['dataTransfer'], wantAgentObj);
+    this.ctId = nt.continuousTaskId ?? -1;
+  }
+
+  // PH-19：DATA_TRANSFER 超过 10 分钟无进度更新会被系统取消，定期刷新以延长任务寿命
+  private refreshContinuousTask(): void {
+    if (!this.ctRunning || !TftpdService.isStarted()) return;
+    backgroundTaskManager.updateBackgroundRunning(getContext(this), ['dataTransfer'])
+      .then((nt: backgroundTaskManager.ContinuousTaskNotification) => {
+        this.ctId = nt.continuousTaskId ?? this.ctId;
+      })
+      .catch((e: BusinessError) => {
+        // 刷新失败不影响服务，改由取消回调兜底；只提示一次，避免刷屏
+        if (!this.ctKeepWarned) {
+          this.ctKeepWarned = true;
+          TftpdService.logs.push(`提示：长时任务刷新失败（${e?.code ?? '?'}），改为被取消即重新申请`);
+        }
+      });
+  }
+
+  // 长时任务被系统取消（或回前台发现已失效）后重新申请
+  private reEnsureContinuousTask(): void {
+    this.ctRunning = false;
+    if (!TftpdService.isStarted()) return;
+    setTimeout(() => {
+      if (!TftpdService.isStarted()) return;
+      this.startContinuousTask().then(() => {
+        this.ctRunning = true;
+        this.ctKeepWarned = false;
+        TftpdService.logs.push('长时任务已重新申请');
+      }).catch((e: BusinessError) => {
+        this.ctRunning = false;
+        TftpdService.logs.push(`提示：长时任务重新申请失败（${Index.bgErrText(e?.code ?? 0)}），` +
+          '可在“设置 > 电池”中允许本应用后台活动');
+        this.publishRunningNotice(`服务运行中（端口 ${this.port}）`);
+      });
+      this.logs = [...TftpdService.logs];
+    }, 1000);
   }
 
   // 长时任务不可用时（部分手机/模拟器返回 9800005），退化为普通常驻通知
@@ -437,13 +521,18 @@ struct Index {
       this.running = true;
       return;
     }
-    this.applySettings();
+    // 端口非法时不启动（停止操作不受表单校验影响），开关回落到实际运行状态
+    if (on && !this.applySettings()) {
+      this.running = TftpdService.isStarted();
+      this.logs = [...TftpdService.logs];
+      return;
+    }
     if (on) {
       try {
         await this.startContinuousTask();
         this.ctRunning = true;
       } catch (e) {
-        // 手机端不支持 taskKeeping 时降级：仅前台可用 + 常驻通知提示
+        // 手机端不支持 dataTransfer 长时任务时降级：仅前台可用 + 常驻通知提示
         const err = e as BusinessError;
         this.ctRunning = false;
         TftpdService.logs.push(`提示：无法保持后台运行（${Index.bgErrText(err?.code ?? 0)}），` +
@@ -457,6 +546,8 @@ struct Index {
       this.running = TftpdService.start();
       if (this.running && !this.ctRunning) this.publishRunningNotice(`服务运行中（端口 ${this.port}）`);
       if (!this.running) {
+        // 回滚：TFTP 绑定失败时其它子服务可能已启动成功，一并停掉避免残留监听
+        TftpdService.stopAll();
         TftpdService.logs.push('TFTP 服务启动失败，请查看日志中的绑定失败原因（端口被占用或无权限）');
       }
     } else {
@@ -507,5 +598,9 @@ struct Index {
         ListItem() { Text(l).fontSize(12).fontFamily('monospace') }
       }, (l: string, i: number) => `${i}_${l}`)
     }.padding(8).layoutWeight(1)
+      // 记录当前视口是否停在末尾：滚到底部时恢复自动吸底，上翻时暂停
+      .onScrollIndex((_first: number, last: number) => {
+        this.logFollow = last >= this.logs.length - 1;
+      })
   }
 }

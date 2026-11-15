@@ -109,6 +109,7 @@ export struct ClientPage {
   @State remote: string = '';
   @State local: string = '';
   @State blkSize: string = '0';
+  @State formErr: string = '';   // PH-58：输入期校验提示，避免非法参数进入 20s+ 的超时等待
   @State st: ClientState = { state: 'idle', bytes: 0, size: 0, blk: 0, rc: 0, msg: '', md5: '' };
   private timer: number = -1;
 
@@ -138,6 +139,48 @@ export struct ClientPage {
     return this.st.state === 'start' || this.st.state === 'progress';
   }
 
+  /* PH-58：发起前校验，非法参数立即提示，不再等原生解析/重传超时 */
+  private validate(): string {
+    const host = this.host.trim();
+    if (host === '') return '请输入服务器地址（IP 或域名）';
+    if (/\s/.test(host)) return '服务器地址不能包含空格';
+    const port = Number(this.port.trim());
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return '端口需为 1~65535 的整数';
+    if (this.remote.trim() === '') return '请填写远端文件名';
+    if (this.local.trim() === '') return '请填写本地文件路径';
+    const blk = Number(this.blkSize.trim() === '' ? '0' : this.blkSize.trim());
+    if (!Number.isInteger(blk) || (blk !== 0 && (blk < 8 || blk > 65464))) {
+      return '块大小需为 0（默认 512）或 8~65464';
+    }
+    return '';
+  }
+
+  private submit(mode: number): void {
+    const err = this.validate();
+    if (err !== '') {
+      this.formErr = err;
+      return;
+    }
+    this.formErr = '';
+    this.host = this.host.trim();
+    this.port = this.port.trim();
+    this.saveForm();
+    TftpdService.startClient(mode, this.host, Number(this.port),
+      this.remote, this.local, Number(this.blkSize));
+  }
+
+  /* 原生状态码中文化，避免用户只看到 start/error 英文与最后的超时文案 */
+  private stateText(): string {
+    switch (this.st.state) {
+      case 'idle': return '空闲';
+      case 'start': return '解析/连接中';
+      case 'progress': return '传输中';
+      case 'done': return '完成';
+      case 'error': return '失败';
+      default: return this.st.state;
+    }
+  }
+
   /* 记住上一次客户端参数（host|port|remote|local|blkSize），下次进入自动回填、
    * 便于重复传输时免去重输；文件缺失时保持页面默认值。 */
   private loadForm(): void {
@@ -162,36 +205,39 @@ export struct ClientPage {
       Text('TFTP 客户端').fontSize(20).fontWeight(FontWeight.Bold)
       Row({ space: 8 }) {
         Text('服务器').width(90)
-        TextInput({ text: this.host }).layoutWeight(2).onChange((v: string) => { this.host = v; })
+        TextInput({ text: this.host }).layoutWeight(2)
+          .textOverflow(TextOverflow.Ellipsis)
+          .onChange((v: string) => { this.host = v; this.formErr = ''; })
         Text('端口').width(48)
-        TextInput({ text: this.port }).width(90).onChange((v: string) => { this.port = v; })
+        TextInput({ text: this.port }).width(90)
+          .onChange((v: string) => { this.port = v; this.formErr = ''; })
       }.width('100%')
       Row({ space: 8 }) {
         Text('远端文件').width(90)
-        TextInput({ text: this.remote }).layoutWeight(1).onChange((v: string) => { this.remote = v; })
+        TextInput({ text: this.remote }).layoutWeight(1)
+          .textOverflow(TextOverflow.Ellipsis)
+          .onChange((v: string) => { this.remote = v; this.formErr = ''; })
       }.width('100%')
       Row({ space: 8 }) {
         Text('本地文件').width(90)
-        TextInput({ text: this.local }).layoutWeight(1).onChange((v: string) => { this.local = v; })
+        TextInput({ text: this.local }).layoutWeight(1)
+          .textOverflow(TextOverflow.Ellipsis)
+          .onChange((v: string) => { this.local = v; this.formErr = ''; })
       }.width('100%')
       Row({ space: 8 }) {
         Text('块大小').width(90)
-        TextInput({ text: this.blkSize }).width(120).onChange((v: string) => { this.blkSize = v; })
+        TextInput({ text: this.blkSize }).width(120)
+          .onChange((v: string) => { this.blkSize = v; this.formErr = ''; })
         Text('0 = 默认 512').fontSize(12).fontColor('#888')
       }.width('100%')
-      Row({ space: 16 }) {
-        Button('下载 (GET)').onClick(() => {
-          this.saveForm();
-          TftpdService.startClient(1, this.host, Number(this.port),
-            this.remote, this.local, Number(this.blkSize));
-        }).enabled(!this.busy())
-        Button('上传 (PUT)').onClick(() => {
-          this.saveForm();
-          TftpdService.startClient(2, this.host, Number(this.port),
-            this.remote, this.local, Number(this.blkSize));
-        }).enabled(!this.busy())
+      if (this.formErr !== '') {
+        Text(this.formErr).fontSize(14).fontColor('#D81E06')
       }
-      Text('状态：' + this.st.state + '  块 ' + this.st.blk + '  ' +
+      Row({ space: 16 }) {
+        Button('下载 (GET)').onClick(() => { this.submit(1); }).enabled(!this.busy())
+        Button('上传 (PUT)').onClick(() => { this.submit(2); }).enabled(!this.busy())
+      }
+      Text('状态：' + this.stateText() + '  块 ' + this.st.blk + '  ' +
         this.st.bytes + '/' + this.st.size + '  错误码 ' + this.st.rc)
         .fontSize(14)
       Text('MD5：' + this.st.md5).fontSize(14).fontColor('#0A59F7')

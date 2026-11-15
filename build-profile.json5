@@ -28,13 +28,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "storeFile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/tftpd32-HS.p12",
-          "storePassword": "0000001B5B4377EF8D13C19518B5D59CF86A5BD4A60D7B9F818C03EA460B8A14FBB87B7FE3FBA9159CC1D6",
+          "storeFile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/Tftpd32-HS.p12",
+          "storePassword": "0000001BD11C3B5374B14C9263C8FD53D9251681ED58EEC6348F2B2A35A1249D087170503C5AF8747EBD8E",
           "keyAlias": "t32",
-          "keyPassword": "0000001B7DB0EF654DC8ADC4385CCDEE7D6C7E6EFFE3AF004B48C889F1B5E100F6600E8F43CDD79AE38181",
+          "keyPassword": "0000001B671B9DBDB884CBD61E988EB87DA66AEA3D2F37E6AB6E2807997378F949C39AEA638BB79CC087D7",
           "signAlg": "SHA256withECDSA",
-          "profile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/T32-testRelease.p7b",
-          "certpath": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/tftpd32-HS.cer"
+          "profile": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/Tftpd32-HSRelease.p7b",
+          "certpath": "D:/Users/3257219077/DevEcoStudioProjects/Tftpd32-harmongyOS/signature/Tftpd32-HS.cer"
         }
       }
     ]

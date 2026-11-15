@@ -638,29 +638,35 @@ if (Rc!=0) LogToMonitor ( "exit wait, rc %d\n", Rc);
 
     // TftpdCleanup (sListenerSocket, hSemaphore);
 
-	// Should the main thread kill other threads ?
-	if ( tThreads[TH_TFTP].bSoftReset )
-				LogToMonitor ("do NOT signal worker threads\n");
-	else
+	// D3：软复位只表示“不中断正在进行的传输”，线程条目仍必须全部回收。
+	// 否则永久线程永远挂起在 hEvent 上、pTftpFirst 非空使下次启动不重建永久线程
+	// （服务表现为“已启动但不再响应”），且残留线程退出时 SetEvent(hEv) 可能
+	// 命中已关闭的事件句柄，触发 SIGSEGV。
+	if (! tThreads[TH_TFTP].bSoftReset)
 	{
 		LogToMonitor ("signalling worker threads\n");
-			/////////////////////////////////
-			// wait for end of worker threads
-			for (pTftp=pTftpFirst ; pTftp!=NULL  ; pTftp=pTftp->next)
-			{
-				if (pTftp->tm.bActive)                nak (pTftp, ECANCELLED);
-				else if (pTftp->tm.bPermanentThread)  SetEvent (pTftp->tm.hEvent);
-			}
-		LogToMonitor ("waiting for worker threads\n");
+		for (pTftp=pTftpFirst ; pTftp!=NULL  ; pTftp=pTftp->next)
+			if (pTftp->tm.bActive)  nak (pTftp, ECANCELLED);
+	}
+	else
+		LogToMonitor ("do NOT signal active worker threads\n");
 
-			while ( pTftpFirst != NULL )
-			{
-				WaitForSingleObject (pTftpFirst->tm.dwThreadHandle, 10000);
-				LogToMonitor ("End of thread %d\n", pTftpFirst->tm.dwThreadHandleId);
-				pTftpFirst->tm.bPermanentThread = FALSE;
-				TftpdDestroyThreadItem (pTftpFirst);
-			}
-	} // Terminate sub threads
+	// 唤醒仍挂起在 hEvent 上的永久线程（软复位同样需要，否则 join 会一直阻塞）
+	for (pTftp=pTftpFirst ; pTftp!=NULL ; pTftp=pTftp->next)
+		if (pTftp->tm.bPermanentThread && !pTftp->tm.bActive)
+			SetEvent (pTftp->tm.hEvent);
+
+	LogToMonitor ("waiting for worker threads\n");
+	while ( pTftpFirst != NULL )
+	{
+		HANDLE hThread = pTftpFirst->tm.dwThreadHandle;
+		WaitForSingleObject (hThread, 10000);      // PAL 实现即 pthread_join，确保线程真正退出
+		LogToMonitor ("End of thread %d\n", pTftpFirst->tm.dwThreadHandleId);
+		PalFreeThreadHandle (hThread);             // 释放线程句柄对象，避免每次启停泄漏
+		pTftpFirst->tm.bPermanentThread = FALSE;
+		TftpdDestroyThreadItem (pTftpFirst);
+	}
+	pTftpFirst = NULL;                             // 保证下次启动重建永久线程
 
 	Rc = closesocket (tThreads[TH_TFTP].skt);
 	tThreads[TH_TFTP].skt=INVALID_SOCKET;

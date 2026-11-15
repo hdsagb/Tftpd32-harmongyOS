@@ -296,6 +296,13 @@ export class TftpdService {
 
   static stop(): void {
     if (!TftpdService.started) return;
+    TftpdService.stopAll();
+  }
+
+  // D4：启动失败时 TFTP 未运行，但其它子服务可能已启动成功并占用端口。
+  // 回滚时必须无视 started 标记直接停掉原生服务，否则界面显示「已停止」
+  // 而 Syslog/DNS 等仍在监听，且与 ini 中的服务掩码不一致。
+  static stopAll(): void {
     tftpd.stopService();
     TftpdService.started = false;
   }
